@@ -14,13 +14,13 @@ spec, distributed via [skills.sh](https://skills.sh).
 Install the whole pack into your active agent(s):
 
 ```bash
-npx skills add <owner>/agent-skills
+npx skills add scarrillo/agent-skills
 ```
 
 Or install a single skill:
 
 ```bash
-npx skills add <owner>/agent-skills --skill pr-review-cycle
+npx skills add scarrillo/agent-skills --skill pr-review-cycle
 ```
 
 `-g` installs globally (user-level, e.g. `~/.claude/skills/`,
@@ -28,13 +28,6 @@ npx skills add <owner>/agent-skills --skill pr-review-cycle
 (e.g. `.claude/skills/`, `.agents/skills/`). See the [skills CLI
 docs](https://github.com/vercel-labs/skills#readme) for agent
 targeting and source formats.
-
-Replace `<owner>` with this repo's GitHub owner once it's published.
-Until then, install directly from the local path:
-
-```bash
-npx skills add scarrillo/agent-skills
-```
 
 ## Prerequisites
 
