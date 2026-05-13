@@ -55,6 +55,31 @@ owner=${1:?owner}
 repo=${2:?repo}
 pr=${3:?pr-number}
 
+# Validate args against GitHub's naming rules before they become
+# part of the lockfile path:
+#   owner: alphanumeric and hyphen, no leading hyphen
+#   repo:  alphanumeric, period, underscore, hyphen
+#   pr:    positive integer (decimal digits only)
+# This keeps the lockfile bounded to `/tmp/pr-watch-<safe>.pid` —
+# no path-traversal (`/` or `..`) sneaks in via args, no surprising
+# globs, no shell metacharacters reaching the filesystem. Exit
+# code 2 matches the deps check above.
+case "$owner" in
+  ''|-*|*[!A-Za-z0-9-]*)
+    echo "pr-watch.sh: invalid owner '$owner' (expected GitHub login: alphanumeric and hyphen, no leading hyphen)" >&2
+    exit 2 ;;
+esac
+case "$repo" in
+  ''|*[!A-Za-z0-9._-]*)
+    echo "pr-watch.sh: invalid repo '$repo' (expected GitHub repo name: alphanumeric, period, underscore, hyphen)" >&2
+    exit 2 ;;
+esac
+case "$pr" in
+  ''|*[!0-9]*)
+    echo "pr-watch.sh: invalid pr-number '$pr' (expected positive integer)" >&2
+    exit 2 ;;
+esac
+
 # Lockfile path lives in one place — both start and stop derive it the
 # same way so they can never disagree on where to look.
 lockfile="/tmp/pr-watch-${owner}-${repo}-${pr}.pid"
