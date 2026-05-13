@@ -115,10 +115,10 @@ Before drafting your summary, read the rules that govern this step:
 1. **Bundled defaults** at `<skill-dir>/rules/default-review-rules.md`
    (alongside this SKILL.md). Always read this.
 2. **Project override** (optional) at
-   `<repo-root>/review-cycle-rules.md`, where `<repo-root>` is `git
-   rev-parse --show-toplevel` from the worktree you confirmed in
-   Preflight. Note this lives in the project being reviewed, not in
-   the agent skills directory.
+   `<repo-root>/review-cycle-rules.md`. The repo root is
+   `git rev-parse --show-toplevel` from the worktree you confirmed
+   in Preflight. Note this lives in the project being reviewed,
+   not in the agent skills directory.
 3. If the override exists, honor its frontmatter `mode` field:
    - `mode: append` (the default if the field is absent or unset) —
      the override's rules apply **after** the defaults; both sets are

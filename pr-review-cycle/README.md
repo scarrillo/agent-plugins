@@ -93,6 +93,9 @@ Whether to commit `review-cycle-rules.md` is a team decision: commit
 when the rule set reflects shared engineering standards; gitignore
 when it's a personal customization for one reviewer.
 
+A copy-and-edit reference lives at
+[`skills/pr-review-cycle/rules/example-project-rules.md`](skills/pr-review-cycle/rules/example-project-rules.md).
+
 ## Layout
 
 ```
@@ -100,7 +103,8 @@ skills/
 └── pr-review-cycle/
     ├── SKILL.md
     ├── rules/
-    │   └── default-review-rules.md
+    │   ├── default-review-rules.md
+    │   └── example-project-rules.md
     └── scripts/
         └── pr-watch.sh
 ```
