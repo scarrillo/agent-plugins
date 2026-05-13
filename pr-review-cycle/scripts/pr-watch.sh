@@ -138,12 +138,38 @@ case "$action" in
     trap 'exit 0' TERM INT
 
     deadline=$(($(date +%s) + budget))
+
+    # Three streams to watch:
+    #   /pulls/{n}/comments  — inline review comments on the diff
+    #   /pulls/{n}/reviews   — review summaries (Copilot lands here)
+    #   /issues/{n}/comments — top-level PR conversation (Codex lands here)
+
+    # Pre-loop baseline fetch: establish prev_total at arm time so
+    # the main loop only ever reports true deltas. Done synchronously
+    # within ~1s of the `start` invocation, before the 120s polling
+    # cadence has any chance to mask incoming activity.
+    #
+    # If the pre-fetch fails (transient gh error, no network), we
+    # leave prev_total=0 with no baseline emit; the first successful
+    # poll in the loop will report the entire existing count as "new
+    # event(s)". That over-triggers a re-review of nothing-new, but
+    # never silently folds genuine new feedback into "baseline" — the
+    # safer failure mode.
     prev_total=0
-    # On the first successful poll, the cumulative count IS the
-    # baseline at arm time, not "new events." Emit a different
-    # line shape so callers can tell the two apart without doing
-    # arithmetic on prev_total themselves.
-    first_poll=1
+    base_rev=$(gh api "repos/$owner/$repo/pulls/$pr/comments" --jq '. | length' 2>/dev/null) || base_rev=""
+    base_reviews=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" --jq '. | length' 2>/dev/null) || base_reviews=""
+    base_iss=$(gh api "repos/$owner/$repo/issues/$pr/comments" --jq '. | length' 2>/dev/null) || base_iss=""
+    if [ -n "$base_rev" ] && [ -n "$base_reviews" ] && [ -n "$base_iss" ]; then
+      prev_total=$((base_rev + base_reviews + base_iss))
+      if [ "$prev_total" -gt 0 ]; then
+        base_reviewers=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" \
+          --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
+        base_commenters=$(gh api "repos/$owner/$repo/issues/$pr/comments" \
+          --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
+        base_recent=$(echo "$base_reviewers $base_commenters" | jq -s 'add | unique | join(",")' 2>/dev/null)
+        echo "PR#$pr baseline: $prev_total existing event(s) at arm time — reviews=$base_reviews rev_comments=$base_rev iss_comments=$base_iss — recent: $base_recent"
+      fi
+    fi
 
     while [ "$(date +%s)" -lt "$deadline" ]; do
       # GitHub's PR state field returns OPEN, MERGED, or CLOSED directly —
@@ -155,10 +181,6 @@ case "$action" in
         exit 0
       fi
 
-      # Three streams to watch:
-      #   /pulls/{n}/comments  — inline review comments on the diff
-      #   /pulls/{n}/reviews   — review summaries (Copilot lands here)
-      #   /issues/{n}/comments — top-level PR conversation (Codex lands here)
       rev_comments=$(gh api "repos/$owner/$repo/pulls/$pr/comments" --jq '. | length' 2>/dev/null) || rev_comments=""
       reviews=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" --jq '. | length' 2>/dev/null) || reviews=""
       iss_comments=$(gh api "repos/$owner/$repo/issues/$pr/comments" --jq '. | length' 2>/dev/null) || iss_comments=""
@@ -166,24 +188,15 @@ case "$action" in
       if [ -n "$rev_comments" ] && [ -n "$reviews" ] && [ -n "$iss_comments" ]; then
         total=$((rev_comments + reviews + iss_comments))
         if [ "$total" -gt "$prev_total" ]; then
+          new=$((total - prev_total))
           latest_reviewers=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" \
             --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
           latest_commenters=$(gh api "repos/$owner/$repo/issues/$pr/comments" \
             --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
           latest=$(echo "$latest_reviewers $latest_commenters" | jq -s 'add | unique | join(",")' 2>/dev/null)
-          if [ "$first_poll" -eq 1 ]; then
-            echo "PR#$pr baseline: $total existing event(s) at arm time — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
-          else
-            new=$((total - prev_total))
-            echo "PR#$pr: $new new event(s) — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
-          fi
+          echo "PR#$pr: $new new event(s) — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
           prev_total=$total
         fi
-        # Mark first-poll done after any successful fetch, even if
-        # there was nothing to emit. Otherwise a quiet first poll
-        # (total == 0) would cause the next non-zero poll to be
-        # mislabeled as "baseline" rather than "new event(s)."
-        first_poll=0
       fi
 
       sleep 120
