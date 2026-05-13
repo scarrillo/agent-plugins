@@ -108,34 +108,41 @@ each thread:
 
 ## Step 3: Summarize and Prioritize
 
+### Load the active review ruleset
+
+Before drafting your summary, read the rules that govern this step:
+
+1. **Bundled defaults** at `<skill-dir>/rules/default-review-rules.md`
+   (alongside this SKILL.md). Always read this.
+2. **Project override** (optional) at
+   `<repo-root>/review-cycle-rules.md`, where `<repo-root>` is `git
+   rev-parse --show-toplevel` from the worktree you confirmed in
+   Preflight. Note this lives in the project being reviewed, not in
+   the agent skills directory.
+3. If the override exists, honor its frontmatter `mode` field:
+   - `mode: append` (the default if the field is absent or unset) —
+     the override's rules apply **after** the defaults; both sets are
+     active.
+   - `mode: replace` — the defaults are ignored entirely; only the
+     override is active.
+
+The merged ruleset is what drives the priority analysis below.
+
+### Summarize
+
 Present a summary to the user:
 - What the PR does (purpose, scope)
 - All review feedback grouped by priority
 - Which conversations are resolved vs. still open
 - Proposed next steps
 
-Form an objective analysis of the PR feedback, don't assume the
+Form an objective analysis of the PR feedback — don't assume the
 feedback is correct.
 
-Pay particular attention to:
-1. **Security** — secrets exposure, input validation, encryption,
-   injection risks
-2. **Performance** — main thread work, unnecessary recomputation,
-   caching opportunities
-3. **Error handling** — silent failures, missing user-facing alerts,
-   unhandled edge cases
-4. **Accessibility** — VoiceOver/screen readers, dynamic type,
-   contrast, touch targets (where applicable to the project's
-   platform)
-
-Don't limit your review to these areas — flag anything that looks
-wrong, fragile, or could be improved. Consider misuse, edge cases,
-and risk. Suggest improvements scoped to the current review —
-readability, maintainability, and structure.
-
-**DO NOT** nitpick formatting — defer to project linters.
-**DO NOT** introduce unrelated refactors — propose them as a later
-todo.
+Pay particular attention to the categories named in the active
+ruleset; skip what the ruleset says to skip. Don't fall back on
+priorities or guardrails that aren't in the active ruleset — if a
+project removed something via `mode: replace`, that's deliberate.
 
 ## Step 4: Resolve Feedback (when asked to)
 
