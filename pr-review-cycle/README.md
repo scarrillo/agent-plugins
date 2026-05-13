@@ -94,7 +94,7 @@ when the rule set reflects shared engineering standards; gitignore
 when it's a personal customization for one reviewer.
 
 A copy-and-edit reference lives at
-[`skills/pr-review-cycle/rules/example-project-rules.md`](skills/pr-review-cycle/rules/example-project-rules.md).
+[`skills/pr-review-cycle/rules/example-review-cycle-rules.md`](skills/pr-review-cycle/rules/example-review-cycle-rules.md).
 
 ## Layout
 
@@ -104,7 +104,7 @@ skills/
     ├── SKILL.md
     ├── rules/
     │   ├── default-review-rules.md
-    │   └── example-project-rules.md
+    │   └── example-review-cycle-rules.md
     └── scripts/
         └── pr-watch.sh
 ```
