@@ -209,20 +209,19 @@ rows from the prompt and present just **Monitor** vs **Hold**.
 
 ### After the user picks
 
-- **Address** or **Both**: hand off to Step 4. When Step 4 returns,
-  arm the watcher immediately and tell the user it's running — same
-  shape as the Monitor path below, but without re-asking.
-- **Monitor**: arm the watcher per "Arming the watch" below. Tell
-  the user it's running, the budget, and how to stop or re-arm:
+The table above already describes what each choice does. The one
+extra detail the table can't carry is the user-facing phrasing
+when arming a watcher — use this template for Address, Both, and
+Monitor paths:
 
-  > "Watch armed for PR #<n> (1h budget). I'll surface any new
-  > review activity here. To stop early:
-  > `bash <path>/scripts/pr-watch.sh stop <owner> <repo> <n>`.
-  > Re-arm with a different window by asking."
+> "Watch armed for PR #<n> (1h budget). I'll surface any new
+> review activity here. To stop early:
+> `bash <path>/scripts/pr-watch.sh stop <owner> <repo> <n>`.
+> Re-arm with a different window by asking."
 
-- **Hold**: say so explicitly ("no action taken; watcher off") and
-  remind the user how to re-arm later (`pr-watch.sh start` command
-  above). End the cycle.
+For **Hold**, no watcher is armed — say so explicitly (e.g. "no
+action taken; watcher off") and reuse the `pr-watch.sh start`
+command from the menu's Hold row as the re-arm reminder.
 
 **Always skip the prompt** when the user has explicitly said "no
 monitoring this session" earlier in the conversation, when the
@@ -256,7 +255,11 @@ a watch exclusively through three subcommands:
 
 - `ps`, `kill`, `pgrep`, or otherwise inspect the watcher process.
 - Read or write the lockfile directly.
-- Tail script logs if your host already streams stdout.
+- Tail script logs when your host's streaming primitive already
+  delivers them as notifications (you'd just be duplicating the
+  same content). The capture-only fallback below is the explicit
+  exception by design — it has no streaming, so log tailing is
+  the only way to surface emits.
 - Track watch state in your own variables, files, or task lists.
 - Implement separate dedup, rate-limiting, or "verify it started"
   checks on top of the script. The script handles all of that.

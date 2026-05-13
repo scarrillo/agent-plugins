@@ -148,29 +148,42 @@ case "$action" in
     #   /pulls/{n}/reviews   — review summaries (Copilot lands here)
     #   /issues/{n}/comments — top-level PR conversation (Codex lands here)
 
-    # Pre-loop baseline fetch: establish prev_total at arm time so
-    # the main loop only ever reports true deltas. Done synchronously
-    # within ~1s of the `start` invocation, before the 120s polling
-    # cadence has any chance to mask incoming activity.
-    #
-    # If the pre-fetch fails (transient gh error, no network), we
-    # leave prev_total=0 with no baseline emit; the first successful
-    # poll in the loop will report the entire existing count as "new
-    # event(s)". That over-triggers a re-review of nothing-new, but
-    # never silently folds genuine new feedback into "baseline" — the
-    # safer failure mode.
+    # Fetch one stream's (count, recent-actor csv) in a single gh call.
+    # jq interpolation packs both into "count|csv". Echoes empty on
+    # fetch failure so callers can detect via [ -n "$result" ].
+    fetch_stream() {
+      gh api "$1" \
+        --jq '"\(length)|\((.[-3:] | map(.user.login) | unique | join(",")))"' \
+        2>/dev/null
+    }
+
+    # Combine three recent-actor csvs into one deduped csv. Skips
+    # empty fields so a stream with no recent actors doesn't insert
+    # blanks.
+    combine_recent() {
+      jq -nr --arg a "$1" --arg b "$2" --arg c "$3" \
+        '[$a, $b, $c] | map(split(",")) | add | unique | map(select(length > 0)) | join(",")'
+    }
+
+    # Pre-loop baseline: establish prev_total at arm time so the
+    # main loop only ever reports true deltas. Done synchronously
+    # within ~1s of `start`, before the 120s cadence can mask
+    # incoming activity. On pre-fetch failure (transient gh error),
+    # prev_total stays 0 and no baseline emit fires; the first
+    # successful loop poll then labels everything as "new event(s)"
+    # — over-noisy but never silently folds genuine feedback into
+    # "baseline."
     prev_total=0
-    base_rev=$(gh api "repos/$owner/$repo/pulls/$pr/comments" --jq '. | length' 2>/dev/null) || base_rev=""
-    base_reviews=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" --jq '. | length' 2>/dev/null) || base_reviews=""
-    base_iss=$(gh api "repos/$owner/$repo/issues/$pr/comments" --jq '. | length' 2>/dev/null) || base_iss=""
-    if [ -n "$base_rev" ] && [ -n "$base_reviews" ] && [ -n "$base_iss" ]; then
+    rev_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/comments")
+    reviews_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/reviews")
+    iss_data=$(fetch_stream "repos/$owner/$repo/issues/$pr/comments")
+    if [ -n "$rev_data" ] && [ -n "$reviews_data" ] && [ -n "$iss_data" ]; then
+      base_rev=${rev_data%%|*};         rev_recent_csv=${rev_data#*|}
+      base_reviews=${reviews_data%%|*}; reviews_recent_csv=${reviews_data#*|}
+      base_iss=${iss_data%%|*};         iss_recent_csv=${iss_data#*|}
       prev_total=$((base_rev + base_reviews + base_iss))
       if [ "$prev_total" -gt 0 ]; then
-        base_reviewers=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" \
-          --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
-        base_commenters=$(gh api "repos/$owner/$repo/issues/$pr/comments" \
-          --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
-        base_recent=$(echo "$base_reviewers $base_commenters" | jq -s 'add | unique | join(",")' 2>/dev/null)
+        base_recent=$(combine_recent "$rev_recent_csv" "$reviews_recent_csv" "$iss_recent_csv")
         echo "PR#$pr baseline: $prev_total existing event(s) at arm time — reviews=$base_reviews rev_comments=$base_rev iss_comments=$base_iss — recent: $base_recent"
       fi
     fi
@@ -185,19 +198,18 @@ case "$action" in
         exit 0
       fi
 
-      rev_comments=$(gh api "repos/$owner/$repo/pulls/$pr/comments" --jq '. | length' 2>/dev/null) || rev_comments=""
-      reviews=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" --jq '. | length' 2>/dev/null) || reviews=""
-      iss_comments=$(gh api "repos/$owner/$repo/issues/$pr/comments" --jq '. | length' 2>/dev/null) || iss_comments=""
+      rev_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/comments")
+      reviews_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/reviews")
+      iss_data=$(fetch_stream "repos/$owner/$repo/issues/$pr/comments")
 
-      if [ -n "$rev_comments" ] && [ -n "$reviews" ] && [ -n "$iss_comments" ]; then
+      if [ -n "$rev_data" ] && [ -n "$reviews_data" ] && [ -n "$iss_data" ]; then
+        rev_comments=${rev_data%%|*};     rev_recent_csv=${rev_data#*|}
+        reviews=${reviews_data%%|*};      reviews_recent_csv=${reviews_data#*|}
+        iss_comments=${iss_data%%|*};     iss_recent_csv=${iss_data#*|}
         total=$((rev_comments + reviews + iss_comments))
         if [ "$total" -gt "$prev_total" ]; then
           new=$((total - prev_total))
-          latest_reviewers=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" \
-            --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
-          latest_commenters=$(gh api "repos/$owner/$repo/issues/$pr/comments" \
-            --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
-          latest=$(echo "$latest_reviewers $latest_commenters" | jq -s 'add | unique | join(",")' 2>/dev/null)
+          latest=$(combine_recent "$rev_recent_csv" "$reviews_recent_csv" "$iss_recent_csv")
           echo "PR#$pr: $new new event(s) — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
           prev_total=$total
         fi
