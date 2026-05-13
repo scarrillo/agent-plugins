@@ -22,7 +22,8 @@ watch loop. Identify the PR from the user's request (URL or
 - `gh` (GitHub CLI) authenticated for the target repo.
 - `jq` on `PATH` — the bundled script parses GitHub JSON responses.
 - `bash` 4+ in a POSIX-ish environment (lockfile path is `/tmp/...`,
-  signals/`kill`/`ps` semantics are assumed Unix).
+  POSIX signal handling via `kill <pid>` and `trap` used internally
+  by the script).
 
 **Platform support:** macOS and Linux are the tested baseline.
 Windows works under WSL2 or Git Bash; a PowerShell-native port of
@@ -168,52 +169,59 @@ replied during a prior run of this skill. Resolution dedup is
 already handled by checking `isResolved` before calling
 `resolveReviewThread`.
 
-**Don't end the turn here.** After Step 4 completes — any reply,
-resolve, commit, or push — proceed immediately to Step 5. The cycle
-is not finished just because you replied to threads; reviewers
-typically respond to fixes within minutes, and silently leaving
-monitoring inactive is a defect, not a default.
+## Step 5: Choose next action
 
-## Step 5: Watch for subsequent activity
+Step 3 surfaced the analysis. **No actions on the PR have been
+taken yet** — present the user a concise menu of next actions and
+let them choose. Don't end the cycle without surfacing this prompt,
+even when the menu is trivial.
 
-Address monitoring before ending the cycle. If Step 4 ran, arm
-the watch by default. If the cycle was read-only, ask. Don't end
-the cycle silently with monitoring inactive.
+The available choices depend on whether Step 2 found open feedback:
 
-- **After Step 4** (you replied, resolved threads, committed, or
-  pushed): arm the watch **immediately** unless the user has
-  explicitly declined monitoring earlier in the conversation.
-  Don't ask — turn-based flow has no in-turn "wait for objection"
-  mechanism, and reviewer follow-up within 1–5 minutes of a push
-  is the empirical norm.
+| Choice | Offered when | What happens |
+| --- | --- | --- |
+| **Address feedback** | Step 2 found open threads | Run Step 4 (commit/push/reply/resolve); arm the watcher when Step 4 returns |
+| **Monitor** | Always | Arm the 1h watcher; make no other changes to the PR |
+| **Both** | Step 2 found open threads | Same as Address (Step 4 → arm), included as an explicit menu item so a user who hasn't seen the cycle before doesn't have to infer it |
+| **Hold** | Always | End the cycle with no action; tell the user how to re-arm later |
 
-  Tell the user the watch is running, the budget, and how to stop
-  or re-arm. The block below is a *template* — substitute the
-  resolved absolute script path and the actual `<owner>`, `<repo>`,
-  `<n>` values before showing it to the user. Do not leave any
-  `<...>` placeholders literal in user-facing output.
+Phrasing template (substitute the resolved absolute script path
+and the actual `<owner>`, `<repo>`, `<n>` values; do not leave any
+`<...>` placeholders literal in user-facing output):
+
+> "Next steps on PR #<n>:
+> - Address open feedback (<N> open thread(s))
+> - Monitor for new reviewer activity (~1h watcher)
+> - Both — address then monitor
+> - Hold (no action; re-arm later with
+>   `bash <path>/scripts/pr-watch.sh start <owner> <repo> <n>`)
+>
+> Which would you like?"
+
+When Step 2 found no open feedback, omit the "Address" and "Both"
+rows from the prompt and present just **Monitor** vs **Hold**.
+
+### After the user picks
+
+- **Address** or **Both**: hand off to Step 4. When Step 4 returns,
+  arm the watcher immediately and tell the user it's running — same
+  shape as the Monitor path below, but without re-asking.
+- **Monitor**: arm the watcher per "Arming the watch" below. Tell
+  the user it's running, the budget, and how to stop or re-arm:
 
   > "Watch armed for PR #<n> (1h budget). I'll surface any new
   > review activity here. To stop early:
   > `bash <path>/scripts/pr-watch.sh stop <owner> <repo> <n>`.
   > Re-arm with a different window by asking."
 
-- **After Steps 0–3 only** (read-only review, no fixes pushed):
-  ask neutrally:
+- **Hold**: say so explicitly ("no action taken; watcher off") and
+  remind the user how to re-arm later (`pr-watch.sh start` command
+  above). End the cycle.
 
-  > "Want me to watch this PR for new reviews/comments? (~1 hour
-  > window)"
-
-**Always skip** when the user has explicitly said "no monitoring
-this session" earlier in the conversation, when the host agent
-genuinely can't background a process (in which case say so), or
-when Step 0 already exited because the PR was merged/closed.
-
-If the user declines, say so explicitly ("monitoring off; re-arm
-later with…") rather than letting silence imply it.
-
-If they accept (or don't object to a Step-4 default), follow the
-steps below.
+**Always skip the prompt** when the user has explicitly said "no
+monitoring this session" earlier in the conversation, when the
+host agent genuinely can't background a process (say so), or when
+Step 0 already exited because the PR was merged/closed.
 
 ### Arming the watch
 
@@ -332,8 +340,10 @@ to decide what to do.
 
 #### `PR#<n> baseline: N existing event(s) at arm time — ...`
 
-The watcher's first successful poll. `N` is the count that already
-existed when arm happened, not new feedback. Tell the user briefly:
+Emitted within seconds of `start`, from a pre-loop fetch that
+runs before the polling cadence begins. `N` is the count that
+already existed on the PR at arm time, not new feedback. Tell
+the user briefly:
 
 > "Watch armed for PR #<n>. Baseline: N existing event(s) from
 > `<recent>`."
@@ -359,18 +369,17 @@ no baseline). When this surfaces:
 
 ### After completing a re-review cycle
 
-Return to Step 5 and apply the same Step-4-vs-read-only rule:
+Return to Step 5 and present the menu again. The same rules apply:
+the user picks Address/Monitor/Both/Hold, and the cycle proceeds
+accordingly. A fresh `start` from the menu's Monitor or Both paths
+kills the previous watcher and resets the counter, so re-emits
+triggered by the just-completed push won't fire spurious
+notifications during the new arm window.
 
-- If the re-review included Step 4 actions (replies, resolves,
-  commits, pushes), re-arm immediately. The new `start` invocation
-  kills the previous watcher and resets the counter, so re-emits
-  triggered by the just-completed push won't fire spurious
-  notifications during the new arm window.
-- If the re-review was read-only, ask whether to re-arm.
-
-If the user previously declined monitoring this session, leave the
-existing watcher running until its deadline (or until the PR
-settles) and don't re-arm.
+If the user previously declined monitoring this session, suppress
+the Monitor and Both menu items entirely — only show Address (if
+applicable) and Hold. Leave the existing watcher running until its
+deadline (or until the PR settles).
 
 ### When the watch ends
 
