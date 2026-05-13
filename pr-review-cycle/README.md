@@ -52,15 +52,54 @@ agent to run a backgrounded bash process and surface its stdout;
 most agents do, but the UX of "you get pinged on new PR activity"
 quality varies.
 
+## Customizing `pr-review-cycle`
+
+The skill's review priorities (Security, Performance, Error handling,
+Accessibility & platform conventions) live in
+`skills/pr-review-cycle/rules/default-review-rules.md`, not inlined
+in `SKILL.md`. Projects can extend or replace those defaults by
+adding a single file at their own repo root:
+
+```
+<your-project>/review-cycle-rules.md
+```
+
+Optional YAML frontmatter controls how the override merges:
+
+```yaml
+---
+mode: append    # default; can be omitted
+---
+
+## Pay particular attention to
+
+5. **Multi-tenant isolation** — flag any query touching shared
+   tables without an explicit tenant filter.
+6. **Migration safety** — for changes touching tables >1M rows,
+   require a backfill plan and locking analysis.
+```
+
+- `mode: append` (the default if the field is absent) — your rules
+  apply **after** the defaults; both sets are active.
+- `mode: replace` — the defaults are ignored entirely; only your
+  override is active.
+
+Whether to commit `review-cycle-rules.md` is a team decision: commit
+when the rule set reflects shared engineering standards; gitignore
+when it's a personal customization for one reviewer.
+
 ## Layout
 
 ```
 skills/
 └── pr-review-cycle/
     ├── SKILL.md
+    ├── rules/
+    │   └── default-review-rules.md
     └── scripts/
         └── pr-watch.sh
 ```
 
-Each skill is a self-contained directory; bundled scripts live
-alongside `SKILL.md` and are referenced relative to it.
+Each skill is a self-contained directory; bundled scripts and
+rule files live alongside `SKILL.md` and are referenced relative
+to it.
