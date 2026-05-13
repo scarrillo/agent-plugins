@@ -73,9 +73,13 @@ the single-line output:
   user and **exit. Do not run any further steps.** Re-fetching
   threads on a settled PR wastes tokens and is misleading. Any stale
   watch on this PR has already been cleaned up by the `check` call.
-- `state=UNKNOWN` → API lookup failed; tell the user the script
-  couldn't determine state and proceed cautiously to Step 1 (the PR
-  likely still exists; a transient `gh` failure shouldn't block).
+- `state=UNKNOWN` → the script's `gh` lookup failed transiently.
+  Don't gate on it. Fall back to a direct call:
+  `gh pr view <pr> --repo <owner>/<repo> --json state`. If that
+  confirms `OPEN`, continue normally — and if you reach Step 5,
+  arming the watch is still allowed: the `start` subcommand
+  tolerates further `UNKNOWN` responses at runtime and only stops
+  on a confirmed non-`OPEN` state.
 
 This makes the skill cheap and idempotent for closed PRs — calling
 it after merge is a single state-check, not a full re-review, and
@@ -150,14 +154,52 @@ replied during a prior run of this skill. Resolution dedup is
 already handled by checking `isResolved` before calling
 `resolveReviewThread`.
 
-## Step 5: Watch for subsequent activity (optional, ask first)
+**Don't end the turn here.** After Step 4 completes — any reply,
+resolve, commit, or push — proceed immediately to Step 5. The cycle
+is not finished just because you replied to threads; reviewers
+typically respond to fixes within minutes, and silently leaving
+monitoring inactive is a defect, not a default.
 
-After the initial review (and any fixes/pushes), offer:
+## Step 5: Watch for subsequent activity
 
-> "Want me to watch this PR for new reviews/comments? (~1 hour
-> window)"
+Address monitoring before ending the cycle. If Step 4 ran, arm
+the watch by default. If the cycle was read-only, ask. Don't end
+the cycle silently with monitoring inactive.
 
-If the user declines, end here. If yes, follow the steps below.
+- **After Step 4** (you replied, resolved threads, committed, or
+  pushed): arm the watch **immediately** unless the user has
+  explicitly declined monitoring earlier in the conversation.
+  Don't ask — turn-based flow has no in-turn "wait for objection"
+  mechanism, and reviewer follow-up within 1–5 minutes of a push
+  is the empirical norm.
+
+  Tell the user the watch is running, the budget, and how to stop
+  or re-arm. The block below is a *template* — substitute the
+  resolved absolute script path and the actual `<owner>`, `<repo>`,
+  `<n>` values before showing it to the user. Do not leave any
+  `<...>` placeholders literal in user-facing output.
+
+  > "Watch armed for PR #<n> (1h budget). I'll surface any new
+  > review activity here. To stop early:
+  > `bash <path>/scripts/pr-watch.sh stop <owner> <repo> <n>`.
+  > Re-arm with a different window by asking."
+
+- **After Steps 0–3 only** (read-only review, no fixes pushed):
+  ask neutrally:
+
+  > "Want me to watch this PR for new reviews/comments? (~1 hour
+  > window)"
+
+**Always skip** when the user has explicitly said "no monitoring
+this session" earlier in the conversation, when the host agent
+genuinely can't background a process (in which case say so), or
+when Step 0 already exited because the PR was merged/closed.
+
+If the user declines, say so explicitly ("monitoring off; re-arm
+later with…") rather than letting silence imply it.
+
+If they accept (or don't object to a Step-4 default), follow the
+steps below.
 
 ### Arming the watch
 
@@ -243,15 +285,18 @@ background script:
 
 ### After completing a re-review cycle
 
-Offer to re-arm: *"Re-arm the watch for another hour?"*
+Return to Step 5 and apply the same Step-4-vs-read-only rule:
 
-If yes, repeat the "Arming the watch" steps — the previous watcher
-gets killed by the new `start` invocation. The counter resets, so
-re-emits triggered by the just-completed push won't fire spurious
-notifications during the new arm window.
+- If the re-review included Step 4 actions (replies, resolves,
+  commits, pushes), re-arm immediately. The new `start` invocation
+  kills the previous watcher and resets the counter, so re-emits
+  triggered by the just-completed push won't fire spurious
+  notifications during the new arm window.
+- If the re-review was read-only, ask whether to re-arm.
 
-If no, exit. The previous watcher will continue until its existing
-deadline (or until the PR merges/closes, whichever first).
+If the user previously declined monitoring this session, leave the
+existing watcher running until its deadline (or until the PR
+settles) and don't re-arm.
 
 ### When the watch ends
 
