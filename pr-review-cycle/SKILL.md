@@ -73,9 +73,13 @@ the single-line output:
   user and **exit. Do not run any further steps.** Re-fetching
   threads on a settled PR wastes tokens and is misleading. Any stale
   watch on this PR has already been cleaned up by the `check` call.
-- `state=UNKNOWN` → API lookup failed; tell the user the script
-  couldn't determine state and proceed cautiously to Step 1 (the PR
-  likely still exists; a transient `gh` failure shouldn't block).
+- `state=UNKNOWN` → the script's `gh` lookup failed transiently.
+  Don't gate on it. Fall back to a direct call:
+  `gh pr view <pr> --repo <owner>/<repo> --json state`. If that
+  confirms `OPEN`, continue normally — and if you reach Step 5,
+  arming the watch is still allowed: the `start` subcommand
+  tolerates further `UNKNOWN` responses at runtime and only stops
+  on a confirmed non-`OPEN` state.
 
 This makes the skill cheap and idempotent for closed PRs — calling
 it after merge is a single state-check, not a full re-review, and
@@ -150,14 +154,49 @@ replied during a prior run of this skill. Resolution dedup is
 already handled by checking `isResolved` before calling
 `resolveReviewThread`.
 
-## Step 5: Watch for subsequent activity (optional, ask first)
+**Don't end the turn here.** After Step 4 completes — any reply,
+resolve, commit, or push — proceed immediately to Step 5. The cycle
+is not finished just because you replied to threads; reviewers
+typically respond to fixes within minutes, and silently leaving
+monitoring inactive is a defect, not a default.
 
-After the initial review (and any fixes/pushes), offer:
+## Step 5: Watch for subsequent activity
 
-> "Want me to watch this PR for new reviews/comments? (~1 hour
-> window)"
+You **must** raise the watch question with the user before ending
+the cycle. This step is not optional to surface, even though the
+user retains the final yes/no. Skipping it is a skill-execution
+defect — a prior version of this skill was framed as "optional, ask
+first" and that framing led to monitoring being silently dropped
+after a Step 4 turn. Don't repeat that.
 
-If the user declines, end here. If yes, follow the steps below.
+How to frame the ask depends on whether Step 4 ran in this cycle:
+
+- **After Step 4** (you replied, resolved threads, committed, or
+  pushed): bias toward arming. Empirically, reviewer follow-up
+  within 1–5 minutes of a push is the norm, not the exception.
+  Frame the ask as a confirmation, not a coin flip:
+
+  > "Arming a 1-hour watch on PR #<n> — reviewer follow-up after a
+  > push is the norm. Say so if you'd rather skip."
+
+  If the user doesn't object, arm it. Tell them it's running.
+
+- **After Steps 0–3 only** (read-only review, no fixes pushed):
+  ask neutrally:
+
+  > "Want me to watch this PR for new reviews/comments? (~1 hour
+  > window)"
+
+**Always skip** when the user has explicitly said "no monitoring
+this session" earlier in the conversation, when the host agent
+genuinely can't background a process (in which case say so), or
+when Step 0 already exited because the PR was merged/closed.
+
+If the user declines, say so explicitly ("monitoring off; re-arm
+later with…") rather than letting silence imply it.
+
+If they accept (or don't object to a Step-4 default), follow the
+steps below.
 
 ### Arming the watch
 
