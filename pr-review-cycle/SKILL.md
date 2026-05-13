@@ -162,24 +162,24 @@ monitoring inactive is a defect, not a default.
 
 ## Step 5: Watch for subsequent activity
 
-You **must** raise the watch question with the user before ending
-the cycle. This step is not optional to surface, even though the
-user retains the final yes/no. Skipping it is a skill-execution
-defect — a prior version of this skill was framed as "optional, ask
-first" and that framing led to monitoring being silently dropped
-after a Step 4 turn. Don't repeat that.
-
-How to frame the ask depends on whether Step 4 ran in this cycle:
+Address monitoring before ending the cycle. If Step 4 ran, arm
+the watch by default. If the cycle was read-only, ask. Don't end
+the cycle silently with monitoring inactive.
 
 - **After Step 4** (you replied, resolved threads, committed, or
-  pushed): bias toward arming. Empirically, reviewer follow-up
-  within 1–5 minutes of a push is the norm, not the exception.
-  Frame the ask as a confirmation, not a coin flip:
+  pushed): arm the watch **immediately** unless the user has
+  explicitly declined monitoring earlier in the conversation.
+  Don't ask — turn-based flow has no in-turn "wait for objection"
+  mechanism, and reviewer follow-up within 1–5 minutes of a push
+  is the empirical norm.
 
-  > "Arming a 1-hour watch on PR #<n> — reviewer follow-up after a
-  > push is the norm. Say so if you'd rather skip."
+  Tell the user the watch is running, the budget, and how to stop
+  or re-arm:
 
-  If the user doesn't object, arm it. Tell them it's running.
+  > "Watch armed for PR #<n> (1h budget). I'll surface any new
+  > review activity here. To stop early:
+  > `bash <path>/scripts/pr-watch.sh stop <owner> <repo> <n>`.
+  > Re-arm with a different window by asking."
 
 - **After Steps 0–3 only** (read-only review, no fixes pushed):
   ask neutrally:
@@ -282,15 +282,18 @@ background script:
 
 ### After completing a re-review cycle
 
-Offer to re-arm: *"Re-arm the watch for another hour?"*
+Return to Step 5 and apply the same Step-4-vs-read-only rule:
 
-If yes, repeat the "Arming the watch" steps — the previous watcher
-gets killed by the new `start` invocation. The counter resets, so
-re-emits triggered by the just-completed push won't fire spurious
-notifications during the new arm window.
+- If the re-review included Step 4 actions (replies, resolves,
+  commits, pushes), re-arm immediately. The new `start` invocation
+  kills the previous watcher and resets the counter, so re-emits
+  triggered by the just-completed push won't fire spurious
+  notifications during the new arm window.
+- If the re-review was read-only, ask whether to re-arm.
 
-If no, exit. The previous watcher will continue until its existing
-deadline (or until the PR merges/closes, whichever first).
+If the user previously declined monitoring this session, leave the
+existing watcher running until its deadline (or until the PR
+settles) and don't re-arm.
 
 ### When the watch ends
 
