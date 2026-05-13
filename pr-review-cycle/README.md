@@ -64,7 +64,11 @@ adding a single file at their own repo root:
 <your-project>/review-cycle-rules.md
 ```
 
-Optional YAML frontmatter controls how the override merges:
+Optional YAML frontmatter controls how the override merges. The
+example below is illustrative — the two priorities shown are
+just examples of the kind of rules a team might add; replace them
+with whatever your project actually cares about (a database team
+might write something completely different than a frontend team):
 
 ```yaml
 ---
@@ -73,6 +77,7 @@ mode: append    # default; can be omitted
 
 ## Pay particular attention to
 
+# Examples — substitute your team's real review priorities here.
 5. **Multi-tenant isolation** — flag any query touching shared
    tables without an explicit tenant filter.
 6. **Migration safety** — for changes touching tables >1M rows,
