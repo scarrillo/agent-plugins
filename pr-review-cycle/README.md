@@ -54,20 +54,27 @@ table](https://github.com/vercel-labs/skills#compatibility) that
 supports basic skills.
 
 Step 5 (the background PR watch) needs the host agent to run a
-backgrounded bash process *and* surface its stdout to the agent
-(not just to a log file). Per-agent canonical invocations:
+backgrounded bash process **and surface each stdout line to the
+agent as a real-time notification** (not just write it to a log
+file the agent reads later — that defeats the "ping me on new
+activity" UX the script is designed for). Per-agent streaming
+primitives:
 
-| Host agent | Backgrounding primitive |
+| Host agent | Streaming primitive |
 | --- | --- |
-| Claude Code | `Bash` tool with `run_in_background: true` |
+| Claude Code | `Monitor` tool (`persistent: true`, `timeout_ms: 3600000`) |
 | Codex | TBD — verify with a test PR |
 | Cursor / Windsurf / OpenCode / others | TBD — verify per agent |
 
-Hosts that lack a native primitive can fall back to
-`nohup … > /tmp/pr-watch-….log 2>&1 &` plus log tailing — works,
-but the agent stops getting real-time emit notifications. See
-SKILL.md's "Arming the watch" section for the full operations
-contract.
+Hosts that lack a real-time-stdout primitive can fall back to
+`nohup … > /tmp/pr-watch-….log 2>&1 &` plus log tailing on
+demand. That preserves the operations contract but degrades the
+UX to passive recording — the agent has to explicitly check the
+log when the user asks "anything new?" The same downgrade
+applies to mechanisms that notify on task completion rather than
+per-emit (e.g. Claude Code's `Bash` with `run_in_background:
+true`). See SKILL.md's "Arming the watch" section for the full
+operations contract.
 
 ## Customizing `pr-review-cycle`
 

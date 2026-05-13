@@ -1,7 +1,7 @@
 ---
 name: pr-review-cycle
 description: Drive the full GitHub PR review → resolve → watch loop. Summarize a pull request, surface review conversations, prioritize open feedback, optionally commit and reply to resolve threads, then watch the PR for new reviewer activity and re-enter the cycle. Use when the user asks to review, respond to, or monitor a PR by URL or number.
-allowed-tools: Bash, Read, Grep, Glob
+allowed-tools: Bash, Read, Grep, Glob, Monitor
 ---
 
 # PR Review Cycle
@@ -260,30 +260,39 @@ is broken — file an issue rather than working around it.
 
 #### Standard invocation per host agent
 
-The script must run beyond the current turn, with stdout capture
-that delivers each emitted line to the agent. Use the host's
-**native** background-execution primitive — never write your own
-`nohup`/`disown`/`&` wrapper unless the host has no native option
-(see "Universal fallback" below).
+The script must run beyond the current turn, **and the agent must
+receive each emitted stdout line as a real-time notification.** An
+emit-once-and-tell-me-later mechanism (e.g. completion-only
+notifications) defeats the purpose of the watcher — every line
+the script produces is something the user needs to know about as
+it happens. Pick the primitive that streams; do not write your
+own `nohup`/`disown`/`&` wrapper unless the host has nothing
+better (see "Capture-only fallback" below).
 
-| Host agent | Invocation | Notes |
+| Host agent | Streaming primitive | Notes |
 | --- | --- | --- |
-| Claude Code | `Bash` tool with `run_in_background: true` | Stdout streams to a task output file the harness notifies you about on every new line. No `nohup`, no log path, no manual `&`. |
-| Codex | (TBD — verify with a test PR) | Likely the same shape as Claude Code; populate this row once tested. |
-| Cursor / Windsurf / OpenCode / others | (TBD — verify per agent) | Most expose a backgrounded-shell primitive. Populate as tested. |
+| Claude Code | `Monitor` tool, `persistent: true`, `timeout_ms: 3600000` | Each stdout line from the script becomes a real-time agent notification — exactly what `pr-watch.sh`'s selective-emit design assumes. Stop with `pr-watch.sh stop` (preferred — keeps the contract), or `TaskStop` as a last resort. **Do not** use `Bash` with `run_in_background: true`: it only notifies the agent on task completion, not per emit, so the watcher's notifications are invisible until the run ends. |
+| Codex | (TBD — verify with a test PR) | Needs a primitive that surfaces stdout lines as the agent receives them, not on completion. Populate this row once tested. |
+| Cursor / Windsurf / OpenCode / others | (TBD — verify per agent) | Same requirement: real-time stdout streaming. Capture-only mechanisms are second-best. Populate as tested. |
 
-#### Universal fallback (no native primitive)
+#### Capture-only fallback (no streaming primitive available)
 
-Only when the host genuinely lacks a backgrounded-stdout primitive:
+Only when the host genuinely lacks a real-time-stdout primitive:
 
 ```
 nohup bash <abs-path>/scripts/pr-watch.sh start <owner> <repo> <pr> [budget-seconds] \
   > /tmp/pr-watch-<owner>-<repo>-<pr>.log 2>&1 &
 ```
 
-Then commit to tailing the log file on each notification. This is
-strictly worse than the native path — emit lines no longer reach
-the agent in real time — but it preserves the operations contract.
+Then explicitly read the log file when the user asks "anything
+new?" or when you have reason to think a notification may have
+arrived. This is **strictly worse** than the streaming path —
+emit lines no longer reach the agent in real time, so the
+"monitor pings me on new activity" UX is gone — but it preserves
+the operations contract. The same downgrade applies to any other
+mechanism that notifies on task completion rather than per-emit
+(such as Claude Code's `Bash` with `run_in_background: true`);
+treat those as capture-only too.
 
 #### Stopping manually
 
