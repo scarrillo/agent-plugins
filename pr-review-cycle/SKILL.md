@@ -1,27 +1,41 @@
 ---
 name: pr-review-cycle
 description: Drive the full GitHub PR review → resolve → watch loop. Summarize a pull request, surface review conversations, prioritize open feedback, optionally commit and reply to resolve threads, then watch the PR for new reviewer activity and re-enter the cycle. Use when the user asks to review, respond to, or monitor a PR by URL or number.
-allowed-tools: Bash, Read, Grep, Glob
+allowed-tools: Bash, Read, Grep, Glob, Monitor
 ---
 
 # PR Review Cycle
 
 Drive a GitHub pull request through one full review → resolve →
 watch loop. Identify the PR from the user's request (URL or
-`#number`); if ambiguous, ask before proceeding. The cycle is:
+`#number`); if ambiguous, ask before proceeding. The cycle mirrors
+the body headings below:
 
-1. Preflight worktree/branch state
-2. Check PR state (open vs. merged/closed)
-3. Fetch context (diff, threads, reviews)
-4. Summarize and prioritize feedback
-5. Resolve threads — commit, push, reply (only when asked)
-6. Watch for new activity and re-enter at step 3 when it arrives
+- **Preflight** — confirm worktree and branch state
+- **Step 0** — check PR state (open vs. merged/closed; bail if
+  settled)
+- **Step 1** — fetch PR details (diff, threads, reviews)
+- **Step 2** — review conversations
+- **Step 3** — summarize and prioritize feedback
+- **Step 4** — resolve threads, commit, push, reply (invoked when
+  Step 5's menu picks Address or Both)
+- **Step 5** — choose next action (Address / Monitor / Both / Hold)
+- On new watcher activity, re-enter **Step 1** to re-fetch and
+  loop through the cycle again
 
 ## Prerequisites
 
 - `gh` (GitHub CLI) authenticated for the target repo.
 - `jq` on `PATH` — the bundled script parses GitHub JSON responses.
-- `bash` 4+.
+- `bash` 4+ in a POSIX-ish environment (lockfile path is `/tmp/...`,
+  POSIX signal handling via `kill <pid>` and `trap` used internally
+  by the script).
+
+**Platform support:** macOS and Linux are the tested baseline.
+Windows works under WSL2 or Git Bash; a PowerShell-native port of
+`pr-watch.sh` is not provided. Flag this to the user if their host
+is native Windows so they can choose WSL/Git Bash before the cycle
+fails partway through.
 
 The bundled `scripts/pr-watch.sh` exits with code 2 and a clear
 message if `gh` or `jq` is missing. If the user hits that, point them
@@ -161,84 +175,138 @@ replied during a prior run of this skill. Resolution dedup is
 already handled by checking `isResolved` before calling
 `resolveReviewThread`.
 
-**Don't end the turn here.** After Step 4 completes — any reply,
-resolve, commit, or push — proceed immediately to Step 5. The cycle
-is not finished just because you replied to threads; reviewers
-typically respond to fixes within minutes, and silently leaving
-monitoring inactive is a defect, not a default.
+## Step 5: Choose next action
 
-## Step 5: Watch for subsequent activity
+Step 3 surfaced the analysis. **No actions on the PR have been
+taken yet** — present the user a concise menu of next actions and
+let them choose. Don't end the cycle without surfacing this prompt,
+even when the menu is trivial.
 
-Address monitoring before ending the cycle. If Step 4 ran, arm
-the watch by default. If the cycle was read-only, ask. Don't end
-the cycle silently with monitoring inactive.
+The available choices depend on whether Step 2 found open feedback:
 
-- **After Step 4** (you replied, resolved threads, committed, or
-  pushed): arm the watch **immediately** unless the user has
-  explicitly declined monitoring earlier in the conversation.
-  Don't ask — turn-based flow has no in-turn "wait for objection"
-  mechanism, and reviewer follow-up within 1–5 minutes of a push
-  is the empirical norm.
+| Choice | Offered when | What happens |
+| --- | --- | --- |
+| **Address feedback** | Step 2 found open threads | Run Step 4 (commit/push/reply/resolve); arm the watcher when Step 4 returns |
+| **Monitor** | Always | Arm the 1h watcher; make no other changes to the PR |
+| **Both** | Step 2 found open threads | Same as Address (Step 4 → arm), included as an explicit menu item so a user who hasn't seen the cycle before doesn't have to infer it |
+| **Hold** | Always | End the cycle with no action; tell the user how to re-arm later |
 
-  Tell the user the watch is running, the budget, and how to stop
-  or re-arm. The block below is a *template* — substitute the
-  resolved absolute script path and the actual `<owner>`, `<repo>`,
-  `<n>` values before showing it to the user. Do not leave any
-  `<...>` placeholders literal in user-facing output.
+Phrasing template (substitute the resolved absolute script path
+and the actual `<owner>`, `<repo>`, `<n>` values; do not leave any
+`<...>` placeholders literal in user-facing output):
 
-  > "Watch armed for PR #<n> (1h budget). I'll surface any new
-  > review activity here. To stop early:
-  > `bash <path>/scripts/pr-watch.sh stop <owner> <repo> <n>`.
-  > Re-arm with a different window by asking."
+> "Next steps on PR #<n>:
+> - Address open feedback (<N> open thread(s))
+> - Monitor for new reviewer activity (~1h watcher)
+> - Both — address then monitor
+> - Hold (no action; re-arm later with
+>   `bash <path>/scripts/pr-watch.sh start <owner> <repo> <n>`)
+>
+> Which would you like?"
 
-- **After Steps 0–3 only** (read-only review, no fixes pushed):
-  ask neutrally:
+When Step 2 found no open feedback, omit the "Address" and "Both"
+rows from the prompt and present just **Monitor** vs **Hold**.
 
-  > "Want me to watch this PR for new reviews/comments? (~1 hour
-  > window)"
+### After the user picks
 
-**Always skip** when the user has explicitly said "no monitoring
-this session" earlier in the conversation, when the host agent
-genuinely can't background a process (in which case say so), or
-when Step 0 already exited because the PR was merged/closed.
+The table above already describes what each choice does. The one
+extra detail the table can't carry is the user-facing phrasing
+when arming a watcher — use this template for Address, Both, and
+Monitor paths:
 
-If the user declines, say so explicitly ("monitoring off; re-arm
-later with…") rather than letting silence imply it.
+> "Watch armed for PR #<n> (1h budget). I'll surface any new
+> review activity here. To stop early:
+> `bash <path>/scripts/pr-watch.sh stop <owner> <repo> <n>`.
+> Re-arm with a different window by asking."
 
-If they accept (or don't object to a Step-4 default), follow the
-steps below.
+For **Hold**, no watcher is armed — say so explicitly (e.g. "no
+action taken; watcher off") and reuse the `pr-watch.sh start`
+command from the menu's Hold row as the re-arm reminder.
+
+**Always skip the prompt** when the user has explicitly said "no
+monitoring this session" earlier in the conversation, when the
+host agent genuinely can't background a process (say so), or when
+Step 0 already exited because the PR was merged/closed.
 
 ### Arming the watch
 
-The `start` subcommand of `pr-watch.sh` polls every 120s and emits a
-one-line `PR#<n>: N new event(s) ...` notification to stdout
-*only when the cumulative comment/review count changes*. It exits
-cleanly when the PR merges/closes or the budget elapses.
-
-The script is **self-deduplicating** via a lockfile at
-`/tmp/pr-watch-<owner>-<repo>-<pr>.pid`. A fresh `start` invocation
-kills any previous instance for the same PR before taking the lock,
-so you don't need to track running processes externally.
-
-Arm it by invoking the script as a backgrounded process from your
-host agent. The exact mechanism varies per agent — pick whichever
-your host exposes:
-
-- A background-bash tool / job (preferred when available — lets the
-  agent receive new stdout lines as they're emitted)
-- `nohup bash <absolute-path>/scripts/pr-watch.sh start <owner>
-  <repo> <pr> [budget-seconds] > /tmp/pr-watch-<owner>-<repo>-<pr>.log
-  2>&1 &` followed by tailing the log file for new lines
-- Foreground in a separate terminal pane the user can monitor
+`pr-watch.sh start` polls the PR every 120s and emits a one-line
+notification to stdout *only when activity changes*. It is
+self-deduplicating via a lockfile at
+`/tmp/pr-watch-<owner>-<repo>-<pr>.pid` — a fresh `start` kills
+any previous instance for the same PR before taking the lock. It
+exits cleanly on PR merge/close or budget elapse.
 
 Default budget is 3600 seconds (1 hour); pass a different value as
-the fifth argument to shorten or extend (e.g. `... start scarrillo
-HeartCast 39 1800` for 30 minutes).
+the fifth `start` argument (e.g. `... start scarrillo HeartCast 39
+1800` for 30 minutes).
 
-To stop a running watch manually:
+#### Operations contract
+
+The script is the **only authority** on watcher state. Operate on
+a watch exclusively through three subcommands:
+
+- `start <owner> <repo> <pr> [budget-seconds]` — arm a watch.
+- `stop  <owner> <repo> <pr>` — terminate a running watch.
+- `check <owner> <repo> <pr>` — query state (used by Step 0;
+  also performs stale-watch cleanup on merged/closed PRs).
+
+**Do not:**
+
+- `ps`, `kill`, `pgrep`, or otherwise inspect the watcher process.
+- Read or write the lockfile directly.
+- Tail script logs when your host's streaming primitive already
+  delivers them as notifications (you'd just be duplicating the
+  same content). The capture-only fallback below is the explicit
+  exception by design — it has no streaming, so log tailing is
+  the only way to surface emits.
+- Track watch state in your own variables, files, or task lists.
+- Implement separate dedup, rate-limiting, or "verify it started"
+  checks on top of the script. The script handles all of that.
+
+If you find yourself reaching for one of the above, the contract
+is broken — file an issue rather than working around it.
+
+#### Standard invocation per host agent
+
+The script must run beyond the current turn, **and the agent must
+receive each emitted stdout line as a real-time notification.** An
+emit-once-and-tell-me-later mechanism (e.g. completion-only
+notifications) defeats the purpose of the watcher — every line
+the script produces is something the user needs to know about as
+it happens. Pick the primitive that streams; do not write your
+own `nohup`/`disown`/`&` wrapper unless the host has nothing
+better (see "Capture-only fallback" below).
+
+| Host agent | Streaming primitive | Notes |
+| --- | --- | --- |
+| Claude Code | `Monitor` tool, `persistent: true`, `timeout_ms: 3600000` | Each stdout line from the script becomes a real-time agent notification — exactly what `pr-watch.sh`'s selective-emit design assumes. Stop with `pr-watch.sh stop` (preferred — keeps the contract), or `TaskStop` as a last resort. **Do not** use `Bash` with `run_in_background: true`: it only notifies the agent on task completion, not per emit, so the watcher's notifications are invisible until the run ends. |
+| Codex | (TBD — verify with a test PR) | Needs a primitive that surfaces stdout lines as the agent receives them, not on completion. Populate this row once tested. |
+| Cursor / Windsurf / OpenCode / others | (TBD — verify per agent) | Same requirement: real-time stdout streaming. Capture-only mechanisms are second-best. Populate as tested. |
+
+#### Capture-only fallback (no streaming primitive available)
+
+Only when the host genuinely lacks a real-time-stdout primitive:
 
 ```
-bash <absolute-path>/scripts/pr-watch.sh stop <owner> <repo> <pr>
+nohup bash <abs-path>/scripts/pr-watch.sh start <owner> <repo> <pr> [budget-seconds] \
+  > /tmp/pr-watch-<owner>-<repo>-<pr>.log 2>&1 &
+```
+
+Then explicitly read the log file when the user asks "anything
+new?" or when you have reason to think a notification may have
+arrived. This is **strictly worse** than the streaming path —
+emit lines no longer reach the agent in real time, so the
+"monitor pings me on new activity" UX is gone — but it preserves
+the operations contract. The same downgrade applies to any other
+mechanism that notifies on task completion rather than per-emit
+(such as Claude Code's `Bash` with `run_in_background: true`);
+treat those as capture-only too.
+
+#### Stopping manually
+
+```
+bash <abs-path>/scripts/pr-watch.sh stop <owner> <repo> <pr>
 ```
 
 Step 0 also calls `stop` implicitly on merged/closed PRs as a
@@ -282,28 +350,54 @@ skill never auto-runs the review flow on a notification — it
 surfaces the event and asks. This is intentional, not a feature
 gap.
 
-### On each new-activity notification
+### On each emit from the background script
 
-When a `PR#<PR>: N new event(s) ...` line surfaces from the
-background script:
-1. Tell the user briefly (who reviewed, how many new threads).
-2. **Ask** — don't auto-run: *"Want me to re-review PR #<n>?"*
-3. If yes, re-enter Step 1 of this skill.
+The script emits two kinds of activity lines (see the script's
+header comment for the full inventory). Pattern-match the prefix
+to decide what to do.
+
+#### `PR#<n> baseline: N existing event(s) at arm time — ...`
+
+Emitted within seconds of `start`, from a pre-loop fetch that
+runs before the polling cadence begins. `N` is the count that
+already existed on the PR at arm time, not new feedback. Tell
+the user briefly:
+
+> "Watch armed for PR #<n>. Baseline: N existing event(s) from
+> `<recent>`."
+
+Do **not** re-enter Step 1; nothing has changed since the cycle
+that just armed the watcher.
+
+#### `PR#<n>: N new event(s) — ...`
+
+A real change since the previous emit (or since arm if there was
+no baseline). When this surfaces:
+
+1. **Cross-check the `recent: ...` actor list against your own
+   GitHub login** (`gh api user --jq '.login'`). The watcher
+   counts every comment/review on the PR, including ones the
+   agent posted via `gh api`. If every actor in `recent` is your
+   own login, the emit is a self-action footprint, not external
+   feedback — say so to the user and stop. Do not re-enter Step 1.
+2. If at least one actor is not you, tell the user briefly (who
+   reviewed, how many new threads).
+3. **Ask** — don't auto-run: *"Want me to re-review PR #<n>?"*
+4. If yes, re-enter Step 1 of this skill.
 
 ### After completing a re-review cycle
 
-Return to Step 5 and apply the same Step-4-vs-read-only rule:
+Return to Step 5 and present the menu again. The same rules apply:
+the user picks Address/Monitor/Both/Hold, and the cycle proceeds
+accordingly. A fresh `start` from the menu's Monitor or Both paths
+kills the previous watcher and resets the counter, so re-emits
+triggered by the just-completed push won't fire spurious
+notifications during the new arm window.
 
-- If the re-review included Step 4 actions (replies, resolves,
-  commits, pushes), re-arm immediately. The new `start` invocation
-  kills the previous watcher and resets the counter, so re-emits
-  triggered by the just-completed push won't fire spurious
-  notifications during the new arm window.
-- If the re-review was read-only, ask whether to re-arm.
-
-If the user previously declined monitoring this session, leave the
-existing watcher running until its deadline (or until the PR
-settles) and don't re-arm.
+If the user previously declined monitoring this session, suppress
+the Monitor and Both menu items entirely — only show Address (if
+applicable) and Hold. Leave the existing watcher running until its
+deadline (or until the PR settles).
 
 ### When the watch ends
 

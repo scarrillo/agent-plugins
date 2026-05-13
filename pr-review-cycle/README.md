@@ -36,10 +36,14 @@ The `pr-review-cycle` skill shells out to:
 - [`gh`](https://cli.github.com/) — authenticated to the repo whose
   PRs you'll review.
 - [`jq`](https://jqlang.github.io/jq/) — JSON parsing.
-- `bash` 4 or newer.
+- `bash` 4 or newer in a POSIX-ish environment.
 
 The bundled `pr-watch.sh` fails fast (exit code 2) with a clear
 message if `gh` or `jq` is missing.
+
+**Platform support:** macOS and Linux are the tested baseline.
+Windows works under WSL2 or Git Bash; a PowerShell-native port of
+`pr-watch.sh` is not provided.
 
 ## Compatibility
 
@@ -47,10 +51,30 @@ message if `gh` or `jq` is missing.
 (`name`, `description`, `allowed-tools`). It should work on any
 agent listed in the [skills.sh compatibility
 table](https://github.com/vercel-labs/skills#compatibility) that
-supports basic skills. Step 5 (background PR watch) needs the host
-agent to run a backgrounded bash process and surface its stdout;
-most agents do, but the UX of "you get pinged on new PR activity"
-quality varies.
+supports basic skills.
+
+Step 5 (the background PR watch) needs the host agent to run a
+backgrounded bash process **and surface each stdout line to the
+agent as a real-time notification** (not just write it to a log
+file the agent reads later — that defeats the "ping me on new
+activity" UX the script is designed for). Per-agent streaming
+primitives:
+
+| Host agent | Streaming primitive |
+| --- | --- |
+| Claude Code | `Monitor` tool (`persistent: true`, `timeout_ms: 3600000`) |
+| Codex | TBD — verify with a test PR |
+| Cursor / Windsurf / OpenCode / others | TBD — verify per agent |
+
+Hosts that lack a real-time-stdout primitive can fall back to
+`nohup … > /tmp/pr-watch-….log 2>&1 &` plus log tailing on
+demand. That preserves the operations contract but degrades the
+UX to passive recording — the agent has to explicitly check the
+log when the user asks "anything new?" The same downgrade
+applies to mechanisms that notify on task completion rather than
+per-emit (e.g. Claude Code's `Bash` with `run_in_background:
+true`). See SKILL.md's "Arming the watch" section for the full
+operations contract.
 
 ## Customizing `pr-review-cycle`
 

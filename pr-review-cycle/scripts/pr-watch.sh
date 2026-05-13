@@ -18,6 +18,17 @@
 # merges/closes, or a previous instance for the same PR is killed by
 # this fresh `start` (self-deduplicating via lockfile).
 #
+# Emit shapes (one line per emit, only when activity changes):
+#   PR#<pr> baseline: <N> existing event(s) at arm time — ...
+#       from a synchronous pre-loop fetch within ~1s of `start`,
+#       only when the PR already has activity at arm time
+#   PR#<pr>: <N> new event(s) — ...
+#       from each subsequent poll when the cumulative count grows
+#   PR#<pr> MERGED — watch stopping        (terminal)
+#   PR#<pr> CLOSED — watch stopping        (terminal)
+#   PR#<pr> <budget>s watch elapsed without merge — stopping (re-arm to continue)
+#       (terminal, on budget elapse)
+#
 # `stop` kills any running watch for the given PR and cleans up the
 # lockfile. Exits 0 whether or not a watch was running.
 #
@@ -44,6 +55,34 @@ shift
 owner=${1:?owner}
 repo=${2:?repo}
 pr=${3:?pr-number}
+
+# Validate args against GitHub's naming rules before they become
+# part of the lockfile path:
+#   owner: alphanumeric and hyphen, no leading hyphen
+#   repo:  alphanumeric, period, underscore, hyphen
+#   pr:    positive integer (decimal digits only)
+# This keeps the lockfile bounded to `/tmp/pr-watch-<safe>.pid` —
+# no path-traversal (`/` or `..`) sneaks in via args, no surprising
+# globs, no shell metacharacters reaching the filesystem. Exit
+# code 2 matches the deps check above.
+case "$owner" in
+  ''|-*|*[!A-Za-z0-9-]*)
+    echo "pr-watch.sh: invalid owner '$owner' (expected GitHub login: alphanumeric and hyphen, no leading hyphen)" >&2
+    exit 2 ;;
+esac
+case "$repo" in
+  ''|*[!A-Za-z0-9._-]*)
+    echo "pr-watch.sh: invalid repo '$repo' (expected GitHub repo name: alphanumeric, period, underscore, hyphen)" >&2
+    exit 2 ;;
+esac
+case "$pr" in
+  ''|*[!0-9]*|0*)
+    # `0*` rejects "0" itself plus any leading-zero form (e.g. "01",
+    # "010") — GitHub PR numbers start at 1 and don't carry leading
+    # zeros, and the API canonicalizes path components without them.
+    echo "pr-watch.sh: invalid pr-number '$pr' (expected positive integer, no leading zeros)" >&2
+    exit 2 ;;
+esac
 
 # Lockfile path lives in one place — both start and stop derive it the
 # same way so they can never disagree on where to look.
@@ -93,9 +132,61 @@ case "$action" in
     fi
     echo $$ > "$lockfile"
     trap 'rm -f "$lockfile"' EXIT
+    # User-initiated stops (`pr-watch.sh stop` sends SIGTERM via
+    # `kill <pid>`; Ctrl-C sends SIGINT) are not failures — they're
+    # the documented way to terminate the watcher. Exit 0 so host
+    # agents that label non-zero exits as "failed" report a clean
+    # completion. The EXIT trap above still fires after this one,
+    # so the lockfile is cleaned up either way. Genuine crashes
+    # (SIGSEGV, set -u violations, etc.) still exit non-zero.
+    trap 'exit 0' TERM INT
 
     deadline=$(($(date +%s) + budget))
+
+    # Three streams to watch:
+    #   /pulls/{n}/comments  — inline review comments on the diff
+    #   /pulls/{n}/reviews   — review summaries (Copilot lands here)
+    #   /issues/{n}/comments — top-level PR conversation (Codex lands here)
+
+    # Fetch one stream's (count, recent-actor csv) in a single gh call.
+    # jq interpolation packs both into "count|csv". Echoes empty on
+    # fetch failure so callers can detect via [ -n "$result" ].
+    fetch_stream() {
+      gh api "$1" \
+        --jq '"\(length)|\((.[-3:] | map(.user.login) | unique | join(",")))"' \
+        2>/dev/null
+    }
+
+    # Combine three recent-actor csvs into one deduped csv. Skips
+    # empty fields so a stream with no recent actors doesn't insert
+    # blanks.
+    combine_recent() {
+      jq -nr --arg a "$1" --arg b "$2" --arg c "$3" \
+        '[$a, $b, $c] | map(split(",")) | add | unique | map(select(length > 0)) | join(",")'
+    }
+
+    # Pre-loop baseline: establish prev_total at arm time so the
+    # main loop only ever reports true deltas. Done synchronously
+    # within ~1s of `start`, before the 120s cadence can mask
+    # incoming activity. On pre-fetch failure (transient gh error),
+    # prev_total stays 0 and no baseline emit fires; the first
+    # successful loop poll then labels everything as "new event(s)"
+    # — over-noisy but never silently folds genuine feedback into
+    # "baseline."
     prev_total=0
+    rev_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/comments")
+    reviews_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/reviews")
+    iss_data=$(fetch_stream "repos/$owner/$repo/issues/$pr/comments")
+    if [ -n "$rev_data" ] && [ -n "$reviews_data" ] && [ -n "$iss_data" ]; then
+      base_rev=${rev_data%%|*};         rev_recent_csv=${rev_data#*|}
+      base_reviews=${reviews_data%%|*}; reviews_recent_csv=${reviews_data#*|}
+      base_iss=${iss_data%%|*};         iss_recent_csv=${iss_data#*|}
+      prev_total=$((base_rev + base_reviews + base_iss))
+      if [ "$prev_total" -gt 0 ]; then
+        base_recent=$(combine_recent "$rev_recent_csv" "$reviews_recent_csv" "$iss_recent_csv")
+        echo "PR#$pr baseline: $prev_total existing event(s) at arm time — reviews=$base_reviews rev_comments=$base_rev iss_comments=$base_iss — recent: $base_recent"
+      fi
+    fi
 
     while [ "$(date +%s)" -lt "$deadline" ]; do
       # GitHub's PR state field returns OPEN, MERGED, or CLOSED directly —
@@ -107,23 +198,18 @@ case "$action" in
         exit 0
       fi
 
-      # Three streams to watch:
-      #   /pulls/{n}/comments  — inline review comments on the diff
-      #   /pulls/{n}/reviews   — review summaries (Copilot lands here)
-      #   /issues/{n}/comments — top-level PR conversation (Codex lands here)
-      rev_comments=$(gh api "repos/$owner/$repo/pulls/$pr/comments" --jq '. | length' 2>/dev/null) || rev_comments=""
-      reviews=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" --jq '. | length' 2>/dev/null) || reviews=""
-      iss_comments=$(gh api "repos/$owner/$repo/issues/$pr/comments" --jq '. | length' 2>/dev/null) || iss_comments=""
+      rev_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/comments")
+      reviews_data=$(fetch_stream "repos/$owner/$repo/pulls/$pr/reviews")
+      iss_data=$(fetch_stream "repos/$owner/$repo/issues/$pr/comments")
 
-      if [ -n "$rev_comments" ] && [ -n "$reviews" ] && [ -n "$iss_comments" ]; then
+      if [ -n "$rev_data" ] && [ -n "$reviews_data" ] && [ -n "$iss_data" ]; then
+        rev_comments=${rev_data%%|*};     rev_recent_csv=${rev_data#*|}
+        reviews=${reviews_data%%|*};      reviews_recent_csv=${reviews_data#*|}
+        iss_comments=${iss_data%%|*};     iss_recent_csv=${iss_data#*|}
         total=$((rev_comments + reviews + iss_comments))
         if [ "$total" -gt "$prev_total" ]; then
           new=$((total - prev_total))
-          latest_reviewers=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" \
-            --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
-          latest_commenters=$(gh api "repos/$owner/$repo/issues/$pr/comments" \
-            --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
-          latest=$(echo "$latest_reviewers $latest_commenters" | jq -s 'add | unique | join(",")' 2>/dev/null)
+          latest=$(combine_recent "$rev_recent_csv" "$reviews_recent_csv" "$iss_recent_csv")
           echo "PR#$pr: $new new event(s) — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
           prev_total=$total
         fi
