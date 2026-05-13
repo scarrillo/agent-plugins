@@ -174,7 +174,10 @@ the cycle silently with monitoring inactive.
   is the empirical norm.
 
   Tell the user the watch is running, the budget, and how to stop
-  or re-arm:
+  or re-arm. The block below is a *template* — substitute the
+  resolved absolute script path and the actual `<owner>`, `<repo>`,
+  `<n>` values before showing it to the user. Do not leave any
+  `<...>` placeholders literal in user-facing output.
 
   > "Watch armed for PR #<n> (1h budget). I'll surface any new
   > review activity here. To stop early:
