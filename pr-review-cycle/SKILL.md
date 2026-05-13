@@ -21,7 +21,14 @@ watch loop. Identify the PR from the user's request (URL or
 
 - `gh` (GitHub CLI) authenticated for the target repo.
 - `jq` on `PATH` — the bundled script parses GitHub JSON responses.
-- `bash` 4+.
+- `bash` 4+ in a POSIX-ish environment (lockfile path is `/tmp/...`,
+  signals/`kill`/`ps` semantics are assumed Unix).
+
+**Platform support:** macOS and Linux are the tested baseline.
+Windows works under WSL2 or Git Bash; a PowerShell-native port of
+`pr-watch.sh` is not provided. Flag this to the user if their host
+is native Windows so they can choose WSL/Git Bash before the cycle
+fails partway through.
 
 The bundled `scripts/pr-watch.sh` exits with code 2 and a clear
 message if `gh` or `jq` is missing. If the user hits that, point them
@@ -210,35 +217,70 @@ steps below.
 
 ### Arming the watch
 
-The `start` subcommand of `pr-watch.sh` polls every 120s and emits a
-one-line `PR#<n>: N new event(s) ...` notification to stdout
-*only when the cumulative comment/review count changes*. It exits
-cleanly when the PR merges/closes or the budget elapses.
-
-The script is **self-deduplicating** via a lockfile at
-`/tmp/pr-watch-<owner>-<repo>-<pr>.pid`. A fresh `start` invocation
-kills any previous instance for the same PR before taking the lock,
-so you don't need to track running processes externally.
-
-Arm it by invoking the script as a backgrounded process from your
-host agent. The exact mechanism varies per agent — pick whichever
-your host exposes:
-
-- A background-bash tool / job (preferred when available — lets the
-  agent receive new stdout lines as they're emitted)
-- `nohup bash <absolute-path>/scripts/pr-watch.sh start <owner>
-  <repo> <pr> [budget-seconds] > /tmp/pr-watch-<owner>-<repo>-<pr>.log
-  2>&1 &` followed by tailing the log file for new lines
-- Foreground in a separate terminal pane the user can monitor
+`pr-watch.sh start` polls the PR every 120s and emits a one-line
+notification to stdout *only when activity changes*. It is
+self-deduplicating via a lockfile at
+`/tmp/pr-watch-<owner>-<repo>-<pr>.pid` — a fresh `start` kills
+any previous instance for the same PR before taking the lock. It
+exits cleanly on PR merge/close or budget elapse.
 
 Default budget is 3600 seconds (1 hour); pass a different value as
-the fifth argument to shorten or extend (e.g. `... start scarrillo
-HeartCast 39 1800` for 30 minutes).
+the fifth `start` argument (e.g. `... start scarrillo HeartCast 39
+1800` for 30 minutes).
 
-To stop a running watch manually:
+#### Operations contract
+
+The script is the **only authority** on watcher state. Operate on
+a watch exclusively through three subcommands:
+
+- `start <owner> <repo> <pr> [budget-seconds]` — arm a watch.
+- `stop  <owner> <repo> <pr>` — terminate a running watch.
+- `check <owner> <repo> <pr>` — query state (used by Step 0;
+  also performs stale-watch cleanup on merged/closed PRs).
+
+**Do not:**
+
+- `ps`, `kill`, `pgrep`, or otherwise inspect the watcher process.
+- Read or write the lockfile directly.
+- Tail script logs if your host already streams stdout.
+- Track watch state in your own variables, files, or task lists.
+- Implement separate dedup, rate-limiting, or "verify it started"
+  checks on top of the script. The script handles all of that.
+
+If you find yourself reaching for one of the above, the contract
+is broken — file an issue rather than working around it.
+
+#### Standard invocation per host agent
+
+The script must run beyond the current turn, with stdout capture
+that delivers each emitted line to the agent. Use the host's
+**native** background-execution primitive — never write your own
+`nohup`/`disown`/`&` wrapper unless the host has no native option
+(see "Universal fallback" below).
+
+| Host agent | Invocation | Notes |
+| --- | --- | --- |
+| Claude Code | `Bash` tool with `run_in_background: true` | Stdout streams to a task output file the harness notifies you about on every new line. No `nohup`, no log path, no manual `&`. |
+| Codex | (TBD — verify with a test PR) | Likely the same shape as Claude Code; populate this row once tested. |
+| Cursor / Windsurf / OpenCode / others | (TBD — verify per agent) | Most expose a backgrounded-shell primitive. Populate as tested. |
+
+#### Universal fallback (no native primitive)
+
+Only when the host genuinely lacks a backgrounded-stdout primitive:
 
 ```
-bash <absolute-path>/scripts/pr-watch.sh stop <owner> <repo> <pr>
+nohup bash <abs-path>/scripts/pr-watch.sh start <owner> <repo> <pr> [budget-seconds] \
+  > /tmp/pr-watch-<owner>-<repo>-<pr>.log 2>&1 &
+```
+
+Then commit to tailing the log file on each notification. This is
+strictly worse than the native path — emit lines no longer reach
+the agent in real time — but it preserves the operations contract.
+
+#### Stopping manually
+
+```
+bash <abs-path>/scripts/pr-watch.sh stop <owner> <repo> <pr>
 ```
 
 Step 0 also calls `stop` implicitly on merged/closed PRs as a
@@ -286,9 +328,17 @@ gap.
 
 When a `PR#<PR>: N new event(s) ...` line surfaces from the
 background script:
-1. Tell the user briefly (who reviewed, how many new threads).
-2. **Ask** — don't auto-run: *"Want me to re-review PR #<n>?"*
-3. If yes, re-enter Step 1 of this skill.
+
+1. **Cross-check the `recent: ...` actor list against your own
+   GitHub login** (`gh api user --jq '.login'`). The watcher
+   counts every comment/review on the PR, including ones the
+   agent posted via `gh api`. If every actor in `recent` is your
+   own login, the emit is a self-action footprint, not external
+   feedback — say so to the user and stop. Do not re-enter Step 1.
+2. If at least one actor is not you, tell the user briefly (who
+   reviewed, how many new threads).
+3. **Ask** — don't auto-run: *"Want me to re-review PR #<n>?"*
+4. If yes, re-enter Step 1 of this skill.
 
 ### After completing a re-review cycle
 
