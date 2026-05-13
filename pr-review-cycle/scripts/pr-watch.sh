@@ -18,6 +18,16 @@
 # merges/closes, or a previous instance for the same PR is killed by
 # this fresh `start` (self-deduplicating via lockfile).
 #
+# Emit shapes (one line per emit, only when activity changes):
+#   PR#<pr> baseline: <N> existing event(s) at arm time — ...
+#       on the first successful poll if the PR already has activity
+#   PR#<pr>: <N> new event(s) — ...
+#       on subsequent polls when the cumulative count grows
+#   PR#<pr> MERGED — watch stopping        (terminal)
+#   PR#<pr> CLOSED — watch stopping        (terminal)
+#   PR#<pr> <budget>s watch elapsed without merge — stopping (re-arm to continue)
+#       (terminal, on budget elapse)
+#
 # `stop` kills any running watch for the given PR and cleans up the
 # lockfile. Exits 0 whether or not a watch was running.
 #
@@ -96,6 +106,11 @@ case "$action" in
 
     deadline=$(($(date +%s) + budget))
     prev_total=0
+    # On the first successful poll, the cumulative count IS the
+    # baseline at arm time, not "new events." Emit a different
+    # line shape so callers can tell the two apart without doing
+    # arithmetic on prev_total themselves.
+    first_poll=1
 
     while [ "$(date +%s)" -lt "$deadline" ]; do
       # GitHub's PR state field returns OPEN, MERGED, or CLOSED directly —
@@ -118,15 +133,24 @@ case "$action" in
       if [ -n "$rev_comments" ] && [ -n "$reviews" ] && [ -n "$iss_comments" ]; then
         total=$((rev_comments + reviews + iss_comments))
         if [ "$total" -gt "$prev_total" ]; then
-          new=$((total - prev_total))
           latest_reviewers=$(gh api "repos/$owner/$repo/pulls/$pr/reviews" \
             --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
           latest_commenters=$(gh api "repos/$owner/$repo/issues/$pr/comments" \
             --jq '.[-3:] | map(.user.login) | unique' 2>/dev/null)
           latest=$(echo "$latest_reviewers $latest_commenters" | jq -s 'add | unique | join(",")' 2>/dev/null)
-          echo "PR#$pr: $new new event(s) — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
+          if [ "$first_poll" -eq 1 ]; then
+            echo "PR#$pr baseline: $total existing event(s) at arm time — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
+          else
+            new=$((total - prev_total))
+            echo "PR#$pr: $new new event(s) — reviews=$reviews rev_comments=$rev_comments iss_comments=$iss_comments — recent: $latest"
+          fi
           prev_total=$total
         fi
+        # Mark first-poll done after any successful fetch, even if
+        # there was nothing to emit. Otherwise a quiet first poll
+        # (total == 0) would cause the next non-zero poll to be
+        # mislabeled as "baseline" rather than "new event(s)."
+        first_poll=0
       fi
 
       sleep 120
