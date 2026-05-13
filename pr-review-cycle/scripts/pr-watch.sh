@@ -103,6 +103,14 @@ case "$action" in
     fi
     echo $$ > "$lockfile"
     trap 'rm -f "$lockfile"' EXIT
+    # User-initiated stops (`pr-watch.sh stop` sends SIGTERM via
+    # `kill <pid>`; Ctrl-C sends SIGINT) are not failures — they're
+    # the documented way to terminate the watcher. Exit 0 so host
+    # agents that label non-zero exits as "failed" report a clean
+    # completion. The EXIT trap above still fires after this one,
+    # so the lockfile is cleaned up either way. Genuine crashes
+    # (SIGSEGV, set -u violations, etc.) still exit non-zero.
+    trap 'exit 0' TERM INT
 
     deadline=$(($(date +%s) + budget))
     prev_total=0
