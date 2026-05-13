@@ -8,14 +8,20 @@ allowed-tools: Bash, Read, Grep, Glob, Monitor
 
 Drive a GitHub pull request through one full review → resolve →
 watch loop. Identify the PR from the user's request (URL or
-`#number`); if ambiguous, ask before proceeding. The cycle is:
+`#number`); if ambiguous, ask before proceeding. The cycle mirrors
+the body headings below:
 
-1. Preflight worktree/branch state
-2. Check PR state (open vs. merged/closed)
-3. Fetch context (diff, threads, reviews)
-4. Summarize and prioritize feedback
-5. Resolve threads — commit, push, reply (only when asked)
-6. Watch for new activity and re-enter at step 3 when it arrives
+- **Preflight** — confirm worktree and branch state
+- **Step 0** — check PR state (open vs. merged/closed; bail if
+  settled)
+- **Step 1** — fetch PR details (diff, threads, reviews)
+- **Step 2** — review conversations
+- **Step 3** — summarize and prioritize feedback
+- **Step 4** — resolve threads, commit, push, reply (invoked when
+  Step 5's menu picks Address or Both)
+- **Step 5** — choose next action (Address / Monitor / Both / Hold)
+- On new watcher activity, re-enter **Step 1** to re-fetch and
+  loop through the cycle again
 
 ## Prerequisites
 

@@ -20,9 +20,10 @@
 #
 # Emit shapes (one line per emit, only when activity changes):
 #   PR#<pr> baseline: <N> existing event(s) at arm time — ...
-#       on the first successful poll if the PR already has activity
+#       from a synchronous pre-loop fetch within ~1s of `start`,
+#       only when the PR already has activity at arm time
 #   PR#<pr>: <N> new event(s) — ...
-#       on subsequent polls when the cumulative count grows
+#       from each subsequent poll when the cumulative count grows
 #   PR#<pr> MERGED — watch stopping        (terminal)
 #   PR#<pr> CLOSED — watch stopping        (terminal)
 #   PR#<pr> <budget>s watch elapsed without merge — stopping (re-arm to continue)
@@ -75,8 +76,11 @@ case "$repo" in
     exit 2 ;;
 esac
 case "$pr" in
-  ''|*[!0-9]*)
-    echo "pr-watch.sh: invalid pr-number '$pr' (expected positive integer)" >&2
+  ''|*[!0-9]*|0*)
+    # `0*` rejects "0" itself plus any leading-zero form (e.g. "01",
+    # "010") — GitHub PR numbers start at 1 and don't carry leading
+    # zeros, and the API canonicalizes path components without them.
+    echo "pr-watch.sh: invalid pr-number '$pr' (expected positive integer, no leading zeros)" >&2
     exit 2 ;;
 esac
 
