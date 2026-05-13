@@ -324,10 +324,27 @@ skill never auto-runs the review flow on a notification — it
 surfaces the event and asks. This is intentional, not a feature
 gap.
 
-### On each new-activity notification
+### On each emit from the background script
 
-When a `PR#<PR>: N new event(s) ...` line surfaces from the
-background script:
+The script emits two kinds of activity lines (see the script's
+header comment for the full inventory). Pattern-match the prefix
+to decide what to do.
+
+#### `PR#<n> baseline: N existing event(s) at arm time — ...`
+
+The watcher's first successful poll. `N` is the count that already
+existed when arm happened, not new feedback. Tell the user briefly:
+
+> "Watch armed for PR #<n>. Baseline: N existing event(s) from
+> `<recent>`."
+
+Do **not** re-enter Step 1; nothing has changed since the cycle
+that just armed the watcher.
+
+#### `PR#<n>: N new event(s) — ...`
+
+A real change since the previous emit (or since arm if there was
+no baseline). When this surfaces:
 
 1. **Cross-check the `recent: ...` actor list against your own
    GitHub login** (`gh api user --jq '.login'`). The watcher
