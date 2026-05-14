@@ -148,13 +148,25 @@ case "$action" in
     #   /pulls/{n}/reviews   — review summaries (Copilot lands here)
     #   /issues/{n}/comments — top-level PR conversation (Codex lands here)
 
+    # Configured GitHub user (the auth identity that's running this
+    # script). When non-empty, fetch_stream filters out actions by
+    # this user — so emits never fire for the agent's own gh-api
+    # activity (replies, resolves, etc.) and the `recent` actor
+    # list never contains self. On fetch failure (auth issue, no
+    # network), self_login stays empty and the filter degrades to
+    # a no-op — script behaves identically to pre-filter versions.
+    self_login=$(gh api user --jq '.login' 2>/dev/null) || self_login=""
+
     # Fetch one stream's (count, recent-actor csv) in a single gh call.
     # jq interpolation packs both into "count|csv". Echoes empty on
     # fetch failure so callers can detect via [ -n "$result" ].
+    # When self_login is non-empty, items authored by self are filtered
+    # out before counting and before the recent-actor list is built.
     fetch_stream() {
-      gh api "$1" \
-        --jq '"\(length)|\((.[-3:] | map(.user.login) | unique | join(",")))"' \
-        2>/dev/null
+      gh api "$1" 2>/dev/null \
+        | jq -r --arg self "$self_login" \
+          '[.[] | select(.user.login != $self)] | "\(length)|\((.[-3:] | map(.user.login) | unique | join(",")))"' \
+          2>/dev/null
     }
 
     # Combine three recent-actor csvs into one deduped csv. Skips
