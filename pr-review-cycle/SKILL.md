@@ -223,6 +223,16 @@ For **Hold**, no watcher is armed — say so explicitly (e.g. "no
 action taken; watcher off") and reuse the `pr-watch.sh start`
 command from the menu's Hold row as the re-arm reminder.
 
+**Verification re-fetch (Address or Both paths only):** Right
+after arming the watcher post-Step-4, re-enter Step 1 once. A
+reviewer's reaction to your push can arrive between Step 4
+completing and the watcher's pre-loop baseline fetch — this
+re-entry catches anything in that race window. If Step 2 sees
+new threads compared to its previous iteration, run through Step
+3 again. Otherwise the cycle is complete and ongoing
+notifications come from the running watcher. The Monitor path
+doesn't need this — no push happened, no race window exists.
+
 **Always skip the prompt** when the user has explicitly said "no
 monitoring this session" earlier in the conversation, when the
 host agent genuinely can't background a process (say so), or when
@@ -356,12 +366,26 @@ The script emits two kinds of activity lines (see the script's
 header comment for the full inventory). Pattern-match the prefix
 to decide what to do.
 
+**The script filters self-actions at source.** At `start`, it
+fetches the configured `gh` user's login and excludes that user's
+comments and reviews from both the count and the `recent:` list.
+Emits that surface normally represent external activity, so you
+don't need to cross-check `recent` against your own login.
+
+**Degraded-mode caveat:** the script falls back to a no-op filter
+if `gh api user` failed at arm time (auth issue, no network). In
+that path emits *can* contain self-actions. If you have any reason
+to suspect the watcher armed in degraded auth — e.g. earlier `gh`
+calls in this session erroring — fall back to the old behavior:
+cross-check `recent` against `gh api user --jq '.login'` before
+treating an emit as external.
+
 #### `PR#<n> baseline: N existing event(s) at arm time — ...`
 
 Emitted within seconds of `start`, from a pre-loop fetch that
-runs before the polling cadence begins. `N` is the count that
-already existed on the PR at arm time, not new feedback. Tell
-the user briefly:
+runs before the polling cadence begins. `N` is the count of
+external events that already existed on the PR at arm time, not
+new feedback. Tell the user briefly:
 
 > "Watch armed for PR #<n>. Baseline: N existing event(s) from
 > `<recent>`."
@@ -371,19 +395,12 @@ that just armed the watcher.
 
 #### `PR#<n>: N new event(s) — ...`
 
-A real change since the previous emit (or since arm if there was
-no baseline). When this surfaces:
+A real external change since the previous emit (or since arm if
+there was no baseline). When this surfaces:
 
-1. **Cross-check the `recent: ...` actor list against your own
-   GitHub login** (`gh api user --jq '.login'`). The watcher
-   counts every comment/review on the PR, including ones the
-   agent posted via `gh api`. If every actor in `recent` is your
-   own login, the emit is a self-action footprint, not external
-   feedback — say so to the user and stop. Do not re-enter Step 1.
-2. If at least one actor is not you, tell the user briefly (who
-   reviewed, how many new threads).
-3. **Ask** — don't auto-run: *"Want me to re-review PR #<n>?"*
-4. If yes, re-enter Step 1 of this skill.
+1. Tell the user briefly (who reviewed, how many new threads).
+2. **Ask** — don't auto-run: *"Want me to re-review PR #<n>?"*
+3. If yes, re-enter Step 1 of this skill.
 
 ### After completing a re-review cycle
 

@@ -148,13 +148,33 @@ case "$action" in
     #   /pulls/{n}/reviews   — review summaries (Copilot lands here)
     #   /issues/{n}/comments — top-level PR conversation (Codex lands here)
 
-    # Fetch one stream's (count, recent-actor csv) in a single gh call.
-    # jq interpolation packs both into "count|csv". Echoes empty on
-    # fetch failure so callers can detect via [ -n "$result" ].
+    # Configured GitHub user (the auth identity that's running this
+    # script). When non-empty, fetch_stream filters out actions by
+    # this user — so emits never fire for the agent's own gh-api
+    # activity (replies, resolves, etc.) and the `recent` actor
+    # list never contains self. On fetch failure (auth issue, no
+    # network), self_login stays empty and the filter degrades to
+    # a no-op — script behaves identically to pre-filter versions.
+    self_login=$(gh api user --jq '.login' 2>/dev/null) || self_login=""
+
+    # Fetch one stream's (count, recent-actor csv). Echoes "count|csv"
+    # on success, empty on failure so callers can detect via
+    # [ -n "$result" ]. When self_login is non-empty, items authored
+    # by self are filtered out before counting and before the
+    # recent-actor list is built.
+    #
+    # `--paginate` is required: gh api defaults to per_page=30, so
+    # without it `length` would freeze at 30 once a stream exceeds
+    # one page and the watcher would silently miss all further
+    # activity on busy PRs. `jq -s` slurps every page (each is its
+    # own JSON array) into an array-of-arrays; `(add // [])` flattens
+    # them, defaulting to [] so empty/failed input doesn't crash the
+    # downstream filter.
     fetch_stream() {
-      gh api "$1" \
-        --jq '"\(length)|\((.[-3:] | map(.user.login) | unique | join(",")))"' \
-        2>/dev/null
+      gh api --paginate "$1" 2>/dev/null \
+        | jq -s -r --arg self "$self_login" \
+          '(add // []) | [.[] | select(.user.login != $self)] | "\(length)|\((.[-3:] | map(.user.login) | unique | join(",")))"' \
+          2>/dev/null
     }
 
     # Combine three recent-actor csvs into one deduped csv. Skips
