@@ -369,9 +369,16 @@ to decide what to do.
 **The script filters self-actions at source.** At `start`, it
 fetches the configured `gh` user's login and excludes that user's
 comments and reviews from both the count and the `recent:` list.
-Any emit that surfaces represents external activity by
-construction — there's no need to cross-check `recent` against
-your own login.
+Emits that surface normally represent external activity, so you
+don't need to cross-check `recent` against your own login.
+
+**Degraded-mode caveat:** the script falls back to a no-op filter
+if `gh api user` failed at arm time (auth issue, no network). In
+that path emits *can* contain self-actions. If you have any reason
+to suspect the watcher armed in degraded auth — e.g. earlier `gh`
+calls in this session erroring — fall back to the old behavior:
+cross-check `recent` against `gh api user --jq '.login'` before
+treating an emit as external.
 
 #### `PR#<n> baseline: N existing event(s) at arm time — ...`
 
