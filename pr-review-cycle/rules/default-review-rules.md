@@ -20,6 +20,15 @@ ruleset" subsection for the merge semantics.
    iOS/macOS, Material guidelines for Android, etc.). Flag missing
    screen-reader, focus, contrast, or keyboard-navigation
    considerations where applicable.
+5. **Behavioral regressions** — silent changes to user-observable
+   behavior that the PR doesn't call out: output format shifts,
+   defaults that change for existing config, removed or renamed
+   public API surface, timing characteristics in refactors, error
+   class or message changes that downstream callers may be
+   matching on, side-effect count changes (more or fewer events
+   fired). Flag whenever a "refactor" or "cleanup" PR alters
+   anything callers could observe — these are the easiest changes
+   to slip through review because the diff looks innocuous.
 
 Don't limit your review to these areas — flag anything that looks
 wrong, fragile, or could be improved. Consider misuse, edge cases,
