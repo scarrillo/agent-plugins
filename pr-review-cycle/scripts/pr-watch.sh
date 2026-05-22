@@ -126,12 +126,29 @@ case "$action" in
     if [ -f "$lockfile" ]; then
       old_pid=$(cat "$lockfile" 2>/dev/null)
       if [ -n "${old_pid:-}" ] && kill -0 "$old_pid" 2>/dev/null; then
+        # Reap the predecessor before we claim the lockfile. A bare
+        # `kill; sleep 1` is not enough: the watcher spends almost all
+        # its time parked in `sleep`, and bash defers a trapped signal
+        # until the running command returns, so SIGTERM can take up to
+        # a full poll interval to land. Poll for the exit, then
+        # escalate to SIGKILL (untrappable, undeferrable) so dedup is
+        # bounded and we never orphan the old watcher.
         kill "$old_pid" 2>/dev/null
-        sleep 1
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+          kill -0 "$old_pid" 2>/dev/null || break
+          sleep 0.2
+        done
+        kill -0 "$old_pid" 2>/dev/null && kill -9 "$old_pid" 2>/dev/null
       fi
     fi
     echo $$ > "$lockfile"
-    trap 'rm -f "$lockfile"' EXIT
+    # Only remove the lockfile if it still names us. Watchers for the
+    # same PR share one lockfile path; without this ownership guard a
+    # predecessor that exits *after* a successor has claimed the file
+    # would delete the successor's lockfile, silently breaking dedup
+    # for the next `start` — the symptom being watchers piling up
+    # instead of replacing one another.
+    trap '[ "$(cat "$lockfile" 2>/dev/null)" = "$$" ] && rm -f "$lockfile"' EXIT
     # User-initiated stops (`pr-watch.sh stop` sends SIGTERM via
     # `kill <pid>`; Ctrl-C sends SIGINT) are not failures — they're
     # the documented way to terminate the watcher. Exit 0 so host
@@ -235,7 +252,12 @@ case "$action" in
         fi
       fi
 
-      sleep 120
+      # Background the sleep and `wait` on it so a SIGTERM (from `stop`
+      # or a fresh `start`'s dedup) interrupts the poll immediately and
+      # runs the TERM trap. A bare `sleep 120` would defer that trap
+      # until the full interval elapsed — up to two minutes of latency
+      # before the watcher actually stops.
+      sleep 120 & wait $!
     done
 
     echo "PR#$pr ${budget}s watch elapsed without merge — stopping (re-arm to continue)"
