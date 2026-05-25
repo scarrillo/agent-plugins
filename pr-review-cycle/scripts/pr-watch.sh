@@ -88,6 +88,25 @@ esac
 # same way so they can never disagree on where to look.
 lockfile="/tmp/pr-watch-${owner}-${repo}-${pr}.pid"
 
+# Confirm a PID from the lockfile is actually *our* watcher for this
+# exact PR before signaling it. The lockfile stores a bare PID, and
+# PIDs get recycled: if a watcher is SIGKILL'd or the host crashes,
+# the EXIT-trap cleanup never runs and the file is left behind, after
+# which the OS may hand that number to an unrelated process. A bare
+# `kill -0` only proves *something* is alive at that PID — so without
+# this check, dedup/stop/check could SIGTERM (then SIGKILL) an
+# innocent process. `ps -o command=` is the portable identity probe
+# (macOS has no /proc); `-ww` prevents truncation of the argv we match
+# on, which sits at the end of the line. The trailing `( |$)` anchors
+# the PR number so a watcher for PR 4 doesn't match PR 42, and so a
+# watcher for a *different* PR fails the check too.
+is_our_watcher() {
+  _pid=${1:-}
+  [ -n "$_pid" ] || return 1
+  ps -ww -p "$_pid" -o command= 2>/dev/null \
+    | grep -Eq "pr-watch\.sh start $owner $repo $pr( |$)"
+}
+
 case "$action" in
   check)
     state=$(gh pr view "$pr" --repo "$owner/$repo" --json state --jq '.state' 2>/dev/null) || state=""
@@ -102,7 +121,7 @@ case "$action" in
     # the watch's own state-detection hasn't yet polled.
     if [ -f "$lockfile" ]; then
       pid=$(cat "$lockfile" 2>/dev/null)
-      if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+      if is_our_watcher "$pid"; then
         kill "$pid" 2>/dev/null
         echo "PR#$pr state=$state, stopped active watch (pid=$pid)"
       else
@@ -125,7 +144,7 @@ case "$action" in
     # reboot).
     if [ -f "$lockfile" ]; then
       old_pid=$(cat "$lockfile" 2>/dev/null)
-      if [ -n "${old_pid:-}" ] && kill -0 "$old_pid" 2>/dev/null; then
+      if is_our_watcher "$old_pid"; then
         # Reap the predecessor before we claim the lockfile. A bare
         # `kill; sleep 1` is not enough: the watcher spends almost all
         # its time parked in `sleep`, and bash defers a trapped signal
@@ -269,7 +288,7 @@ case "$action" in
       exit 0
     fi
     pid=$(cat "$lockfile" 2>/dev/null)
-    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+    if is_our_watcher "$pid"; then
       kill "$pid" 2>/dev/null
       echo "stopped watch for $owner/$repo#$pr (pid=$pid)"
     else
