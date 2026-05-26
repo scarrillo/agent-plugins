@@ -291,7 +291,7 @@ better (see "Capture-only fallback" below).
 | Host agent | Streaming primitive | Notes |
 | --- | --- | --- |
 | Claude Code | `Monitor` tool, `persistent: true`, `timeout_ms: 3600000` | Each stdout line from the script becomes a real-time agent notification — exactly what `pr-watch.sh`'s selective-emit design assumes. Stop with `pr-watch.sh stop` (preferred — keeps the contract), or `TaskStop` as a last resort. **Do not** use `Bash` with `run_in_background: true`: it only notifies the agent on task completion, not per emit, so the watcher's notifications are invisible until the run ends. |
-| Codex | (TBD — verify with a test PR) | Needs a primitive that surfaces stdout lines as the agent receives them, not on completion. Populate this row once tested. |
+| Codex | Capture-only fallback (see below) | Codex has **no per-emit streaming primitive** — a shell command's stdout returns when the command completes, not line-by-line. Use the `nohup … > log &` form below; the watcher survives across turns as a child of the long-lived Codex session. Read the log file when the user asks "anything new?" (or you suspect a notification landed). **Re-arming is safe and idempotent** — a fresh `start` reliably reaps any prior watcher for the same PR via the lockfile, so you will not accumulate duplicate watchers. **Do not** treat a blocking foreground `start` as the watch: it would stall the turn for the full budget. |
 | Cursor / Windsurf / OpenCode / others | (TBD — verify per agent) | Same requirement: real-time stdout streaming. Capture-only mechanisms are second-best. Populate as tested. |
 
 #### Capture-only fallback (no streaming primitive available)

@@ -88,6 +88,25 @@ esac
 # same way so they can never disagree on where to look.
 lockfile="/tmp/pr-watch-${owner}-${repo}-${pr}.pid"
 
+# Confirm a PID from the lockfile is actually *our* watcher for this
+# exact PR before signaling it. The lockfile stores a bare PID, and
+# PIDs get recycled: if a watcher is SIGKILL'd or the host crashes,
+# the EXIT-trap cleanup never runs and the file is left behind, after
+# which the OS may hand that number to an unrelated process. A bare
+# `kill -0` only proves *something* is alive at that PID — so without
+# this check, dedup/stop/check could SIGTERM (then SIGKILL) an
+# innocent process. `ps -o command=` is the portable identity probe
+# (macOS has no /proc); `-ww` prevents truncation of the argv we match
+# on, which sits at the end of the line. The trailing `( |$)` anchors
+# the PR number so a watcher for PR 4 doesn't match PR 42, and so a
+# watcher for a *different* PR fails the check too.
+is_our_watcher() {
+  _pid=${1:-}
+  [ -n "$_pid" ] || return 1
+  ps -ww -p "$_pid" -o command= 2>/dev/null \
+    | grep -Eq "pr-watch\.sh start $owner $repo $pr( |$)"
+}
+
 case "$action" in
   check)
     state=$(gh pr view "$pr" --repo "$owner/$repo" --json state --jq '.state' 2>/dev/null) || state=""
@@ -102,7 +121,7 @@ case "$action" in
     # the watch's own state-detection hasn't yet polled.
     if [ -f "$lockfile" ]; then
       pid=$(cat "$lockfile" 2>/dev/null)
-      if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+      if is_our_watcher "$pid"; then
         kill "$pid" 2>/dev/null
         echo "PR#$pr state=$state, stopped active watch (pid=$pid)"
       else
@@ -125,13 +144,30 @@ case "$action" in
     # reboot).
     if [ -f "$lockfile" ]; then
       old_pid=$(cat "$lockfile" 2>/dev/null)
-      if [ -n "${old_pid:-}" ] && kill -0 "$old_pid" 2>/dev/null; then
+      if is_our_watcher "$old_pid"; then
+        # Reap the predecessor before we claim the lockfile. A bare
+        # `kill; sleep 1` is not enough: the watcher spends almost all
+        # its time parked in `sleep`, and bash defers a trapped signal
+        # until the running command returns, so SIGTERM can take up to
+        # a full poll interval to land. Poll for the exit, then
+        # escalate to SIGKILL (untrappable, undeferrable) so dedup is
+        # bounded and we never orphan the old watcher.
         kill "$old_pid" 2>/dev/null
-        sleep 1
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+          kill -0 "$old_pid" 2>/dev/null || break
+          sleep 0.2
+        done
+        kill -0 "$old_pid" 2>/dev/null && kill -9 "$old_pid" 2>/dev/null
       fi
     fi
     echo $$ > "$lockfile"
-    trap 'rm -f "$lockfile"' EXIT
+    # Only remove the lockfile if it still names us. Watchers for the
+    # same PR share one lockfile path; without this ownership guard a
+    # predecessor that exits *after* a successor has claimed the file
+    # would delete the successor's lockfile, silently breaking dedup
+    # for the next `start` — the symptom being watchers piling up
+    # instead of replacing one another.
+    trap '[ "$(cat "$lockfile" 2>/dev/null)" = "$$" ] && rm -f "$lockfile"' EXIT
     # User-initiated stops (`pr-watch.sh stop` sends SIGTERM via
     # `kill <pid>`; Ctrl-C sends SIGINT) are not failures — they're
     # the documented way to terminate the watcher. Exit 0 so host
@@ -235,7 +271,12 @@ case "$action" in
         fi
       fi
 
-      sleep 120
+      # Background the sleep and `wait` on it so a SIGTERM (from `stop`
+      # or a fresh `start`'s dedup) interrupts the poll immediately and
+      # runs the TERM trap. A bare `sleep 120` would defer that trap
+      # until the full interval elapsed — up to two minutes of latency
+      # before the watcher actually stops.
+      sleep 120 & wait $!
     done
 
     echo "PR#$pr ${budget}s watch elapsed without merge — stopping (re-arm to continue)"
@@ -247,7 +288,7 @@ case "$action" in
       exit 0
     fi
     pid=$(cat "$lockfile" 2>/dev/null)
-    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+    if is_our_watcher "$pid"; then
       kill "$pid" 2>/dev/null
       echo "stopped watch for $owner/$repo#$pr (pid=$pid)"
     else
