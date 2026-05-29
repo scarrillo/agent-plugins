@@ -63,7 +63,7 @@ primitives:
 | Host agent | Streaming primitive |
 | --- | --- |
 | Claude Code | `Monitor` tool (`persistent: true`, `timeout_ms: 3600000`) |
-| Codex | TBD — verify with a test PR |
+| Codex | None per-emit — use the capture-only fallback below |
 | Cursor / Windsurf / OpenCode / others | TBD — verify per agent |
 
 Hosts that lack a real-time-stdout primitive can fall back to
@@ -75,6 +75,19 @@ applies to mechanisms that notify on task completion rather than
 per-emit (e.g. Claude Code's `Bash` with `run_in_background:
 true`). See SKILL.md's "Arming the watch" section for the full
 operations contract.
+
+## Design notes
+
+- **Three comment streams.** PRs expose reviews, inline comments,
+  and issue comments on separate endpoints, and bots scatter across
+  all three (Copilot → reviews, Codex verdict → issue comments). The
+  watcher sums all three.
+- **120s poll, selective emit.** Bots file 1–5 min after a push; the
+  watcher polls every 120s and emits only when the cumulative count
+  changes, so silence is meaningful.
+- **Notify-only.** Each emit surfaces activity and asks; the skill
+  never auto-acts, since replies/commits/pushes need per-occurrence
+  approval.
 
 ## Customizing `pr-review-cycle`
 

@@ -27,20 +27,12 @@ the body headings below:
 
 - `gh` (GitHub CLI) authenticated for the target repo.
 - `jq` on `PATH` — the bundled script parses GitHub JSON responses.
-- `bash` 4+ in a POSIX-ish environment (lockfile path is `/tmp/...`,
-  POSIX signal handling via `kill <pid>` and `trap` used internally
-  by the script).
+- `bash` 4+ in a POSIX-ish environment (lockfile at `/tmp/...`,
+  POSIX `kill`/`trap` used internally).
 
-**Platform support:** macOS and Linux are the tested baseline.
-Windows works under WSL2 or Git Bash; a PowerShell-native port of
-`pr-watch.sh` is not provided. Flag this to the user if their host
-is native Windows so they can choose WSL/Git Bash before the cycle
-fails partway through.
-
-The bundled `scripts/pr-watch.sh` exits with code 2 and a clear
-message if `gh` or `jq` is missing. If the user hits that, point them
-at the install instructions for their platform rather than working
-around the failure.
+The bundled `scripts/pr-watch.sh` exits with code 2 if `gh` or `jq`
+is missing. Platform support and host compatibility are covered in
+the repo README.
 
 ## Resolving the bundled script path
 
@@ -109,7 +101,15 @@ gh pr view <pr> --json title,body,baseRefName,headRefName,url,number,reviewDecis
 gh pr diff <pr>
 gh api repos/{owner}/{repo}/pulls/{number}/comments
 gh api repos/{owner}/{repo}/pulls/{number}/reviews
+gh api repos/{owner}/{repo}/issues/{number}/comments
 ```
+
+These are the three comment streams the watcher also sums: inline
+diff comments (`pulls/.../comments`), review summaries
+(`pulls/.../reviews`, where Copilot lands), and top-level
+conversation (`issues/.../comments`, where Codex's verdict and
+human top-level comments land). Fetch all three or the review
+misses whichever stream a given reviewer used.
 
 ## Step 2: Review Conversations
 
@@ -188,7 +188,7 @@ The available choices depend on whether Step 2 found open feedback:
 | --- | --- | --- |
 | **Address feedback** | Step 2 found open threads | Run Step 4 (commit/push/reply/resolve); arm the watcher when Step 4 returns |
 | **Monitor** | Always | Arm the 1h watcher; make no other changes to the PR |
-| **Both** | Step 2 found open threads | Same as Address (Step 4 → arm), included as an explicit menu item so a user who hasn't seen the cycle before doesn't have to infer it |
+| **Both** | Step 2 found open threads | Same as Address (Step 4 → arm) |
 | **Hold** | Always | End the cycle with no action; tell the user how to re-arm later |
 
 Phrasing template (substitute the resolved absolute script path
@@ -280,19 +280,18 @@ is broken — file an issue rather than working around it.
 #### Standard invocation per host agent
 
 The script must run beyond the current turn, **and the agent must
-receive each emitted stdout line as a real-time notification.** An
-emit-once-and-tell-me-later mechanism (e.g. completion-only
-notifications) defeats the purpose of the watcher — every line
-the script produces is something the user needs to know about as
-it happens. Pick the primitive that streams; do not write your
-own `nohup`/`disown`/`&` wrapper unless the host has nothing
-better (see "Capture-only fallback" below).
+receive each emitted stdout line as a real-time notification.** A
+completion-only mechanism defeats the watcher. Pick the primitive
+that streams; don't hand-roll a `nohup`/`&` wrapper unless the host
+has nothing better (see "Capture-only fallback").
 
 | Host agent | Streaming primitive | Notes |
 | --- | --- | --- |
-| Claude Code | `Monitor` tool, `persistent: true`, `timeout_ms: 3600000` | Each stdout line from the script becomes a real-time agent notification — exactly what `pr-watch.sh`'s selective-emit design assumes. Stop with `pr-watch.sh stop` (preferred — keeps the contract), or `TaskStop` as a last resort. **Do not** use `Bash` with `run_in_background: true`: it only notifies the agent on task completion, not per emit, so the watcher's notifications are invisible until the run ends. |
-| Codex | Capture-only fallback (see below) | Codex has **no per-emit streaming primitive** — a shell command's stdout returns when the command completes, not line-by-line. Use the `nohup … > log &` form below; the watcher survives across turns as a child of the long-lived Codex session. Read the log file when the user asks "anything new?" (or you suspect a notification landed). **Re-arming is safe and idempotent** — a fresh `start` reliably reaps any prior watcher for the same PR via the lockfile, so you will not accumulate duplicate watchers. **Do not** treat a blocking foreground `start` as the watch: it would stall the turn for the full budget. |
-| Cursor / Windsurf / OpenCode / others | (TBD — verify per agent) | Same requirement: real-time stdout streaming. Capture-only mechanisms are second-best. Populate as tested. |
+| Claude Code | `Monitor` tool, `persistent: true`, `timeout_ms: 3600000` | Each stdout line becomes a real-time notification. Stop with `pr-watch.sh stop` (preferred), or `TaskStop` as a last resort. **Do not** use `Bash` with `run_in_background: true` — it notifies only on completion, not per emit. |
+| Codex | Capture-only fallback (see below) | No per-emit streaming primitive. Use the `nohup … > log &` form; the watcher survives across turns as a child of the Codex session. Read the log when the user asks "anything new?" **Do not** run a blocking foreground `start` — it stalls the turn for the full budget. |
+
+Other hosts: same requirement (real-time stdout streaming); use the
+capture-only fallback if the host can't meet it.
 
 #### Capture-only fallback (no streaming primitive available)
 
@@ -303,15 +302,11 @@ nohup bash <abs-path>/scripts/pr-watch.sh start <owner> <repo> <pr> [budget-seco
   > /tmp/pr-watch-<owner>-<repo>-<pr>.log 2>&1 &
 ```
 
-Then explicitly read the log file when the user asks "anything
-new?" or when you have reason to think a notification may have
-arrived. This is **strictly worse** than the streaming path —
-emit lines no longer reach the agent in real time, so the
-"monitor pings me on new activity" UX is gone — but it preserves
-the operations contract. The same downgrade applies to any other
-mechanism that notifies on task completion rather than per-emit
-(such as Claude Code's `Bash` with `run_in_background: true`);
-treat those as capture-only too.
+Read the log file when the user asks "anything new?" This preserves
+the operations contract but is **strictly worse** than streaming —
+emit lines no longer reach the agent in real time. The same applies
+to any completion-only mechanism (e.g. Claude Code's `Bash` with
+`run_in_background: true`); treat those as capture-only too.
 
 #### Stopping manually
 
@@ -321,44 +316,6 @@ bash <abs-path>/scripts/pr-watch.sh stop <owner> <repo> <pr>
 
 Step 0 also calls `stop` implicitly on merged/closed PRs as a
 stale-watch backstop.
-
-### Design notes — read before tweaking
-
-**Why three streams (reviews, review comments, issue comments)**
-GitHub PRs have three distinct comment endpoints. Different bots
-post to different ones:
-- `/pulls/{n}/reviews` — review summaries; **Copilot's overview**
-- `/pulls/{n}/comments` — inline diff comments; Copilot/Codex when
-  they have line-specific findings
-- `/issues/{n}/comments` — top-level conversation; **Codex's verdict**
-  comment lands here, as does any human comment in the PR's main
-  comment box
-
-Watching only the first two would miss Codex entirely (this happened
-once — fixed). The script sums all three.
-
-**Why 120s polling, not 30s or 60s**
-Bots typically take 1–5 min to file reviews after a push. Polling
-every 30s wastes GitHub API calls during the gap and risks
-rate-limit hits if multiple watches are active. 120s is enough
-resolution for human timescales and gentle on the API.
-
-**Why selective emit (not periodic heartbeat)**
-The script only echoes when the cumulative count *changes*. Most
-polls produce silence. Reasoning: every echo becomes a chat
-notification on agents that surface stdout lines, and most agent
-runtimes auto-throttle or auto-stop processes that emit too many
-events. A 1h watch with periodic heartbeats would be 30+
-notifications you'd scroll past; selective emit makes silence
-meaningful (no news == nothing happened) and the final
-timeout/exit message confirms the watch ran to completion.
-
-**Why notify-only on each event (no auto-act)**
-PR replies, commits, pushes are shared-state actions. Per project
-rules, every such action needs fresh approval per occurrence. The
-skill never auto-runs the review flow on a notification — it
-surfaces the event and asks. This is intentional, not a feature
-gap.
 
 ### On each emit from the background script
 
