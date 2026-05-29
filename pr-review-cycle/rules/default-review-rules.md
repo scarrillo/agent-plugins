@@ -1,10 +1,4 @@
-# Default PR Review Rules
-
-The pr-review-cycle skill loads this file during Step 3 (Summarize
-and Prioritize) to drive its priority analysis. Projects can extend
-or replace these defaults by adding a `review-cycle-rules.md` file
-at their repo root — see SKILL.md's "Load the active review
-ruleset" subsection for the merge semantics.
+# PR Review Rules
 
 ## Pay particular attention to
 

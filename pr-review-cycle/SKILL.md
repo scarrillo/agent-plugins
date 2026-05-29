@@ -1,6 +1,6 @@
 ---
 name: pr-review-cycle
-description: Drive the full GitHub PR review → resolve → watch loop. Summarize a pull request, surface review conversations, prioritize open feedback, optionally commit and reply to resolve threads, then watch the PR for new reviewer activity and re-enter the cycle. Use when the user asks to review, respond to, or monitor a PR by URL or number.
+description: Drive the full GitHub PR review → resolve → watch loop. Summarize a pull request, surface review conversations, prioritize open feedback, optionally commit and reply to resolve threads, then watch the PR for new reviewer activity and re-enter the cycle. Use when the user asks to review, respond to, or monitor a PR by URL or number — and also proactively whenever the user opens a PR or pushes a new commit to one, to offer arming the watcher for incoming review activity.
 allowed-tools: Bash, Read, Grep, Glob, Monitor
 ---
 
@@ -22,6 +22,22 @@ the body headings below:
 - **Step 5** — choose next action (Address / Monitor / Both / Hold)
 - On new watcher activity, re-enter **Step 1** to re-fetch and
   loop through the cycle again
+
+## Proactive trigger: just opened or pushed to a PR
+
+When the user opens a PR (`gh pr create`) or pushes a new commit to
+an existing PR's branch, offer to arm the watcher — don't run the
+full cycle. Reviewers haven't had time to look yet, so Steps 1–3
+would summarize nothing. Instead, ask once:
+
+> "PR #<n> is ready for reviewers — want me to watch for incoming
+> review activity (~1h)?"
+
+If yes, jump straight to Step 5's Monitor path. If no, end the
+turn. Skip this when the user has already declined monitoring this
+session, or when the push was a follow-up to address existing
+review threads (the Step 5 verification re-fetch already covers
+that case).
 
 ## Prerequisites
 
@@ -106,10 +122,10 @@ gh api repos/{owner}/{repo}/issues/{number}/comments
 
 These are the three comment streams the watcher also sums: inline
 diff comments (`pulls/.../comments`), review summaries
-(`pulls/.../reviews`, where Copilot lands), and top-level
-conversation (`issues/.../comments`, where Codex's verdict and
-human top-level comments land). Fetch all three or the review
-misses whichever stream a given reviewer used.
+(`pulls/.../reviews`), and top-level conversation
+(`issues/.../comments`). Reviewers (human or bot) may land in any
+of them — fetch all three or the review misses whichever stream a
+given reviewer used.
 
 ## Step 2: Review Conversations
 

@@ -79,9 +79,14 @@ operations contract.
 ## Design notes
 
 - **Three comment streams.** PRs expose reviews, inline comments,
-  and issue comments on separate endpoints, and bots scatter across
-  all three (Copilot → reviews, Codex verdict → issue comments). The
-  watcher sums all three.
+  and issue comments on separate endpoints, and reviewers (human or
+  bot) may land in any of them. The watcher sums all three.
+- **Detector, not fetcher.** The watcher only counts events and
+  reports *that* something changed (a delta count plus who acted) —
+  it never pulls diffs or comment bodies. On a change it pings the
+  agent, which asks the user and only then re-runs Step 1 to fetch
+  and analyze the actual content. This is why the poll can stay a
+  cheap 120s count loop instead of re-pulling the PR every cycle.
 - **120s poll, selective emit.** Bots file 1–5 min after a push; the
   watcher polls every 120s and emits only when the cumulative count
   changes, so silence is meaningful.
@@ -91,21 +96,28 @@ operations contract.
 
 ## Customizing `pr-review-cycle`
 
-The skill's review priorities (Security, Performance, Error handling,
-Accessibility & platform conventions) live in
-`skills/pr-review-cycle/rules/default-review-rules.md`, not inlined
-in `SKILL.md`. Projects can extend or replace those defaults by
-adding a single file at their own repo root:
+Review priorities are layered, so each project keeps its own
+guardrails without forking the skill:
 
-```
-<your-project>/review-cycle-rules.md
-```
+1. **Built-in defaults** (always loaded) —
+   `skills/pr-review-cycle/rules/default-review-rules.md`. Ships
+   with the skill: Security, Performance, Error handling,
+   Accessibility & platform conventions, Behavioral regressions.
+2. **Project override** (optional) —
+   `<your-project>/review-cycle-rules.md` at the target repo's
+   root (resolved via `git rev-parse --show-toplevel` from the
+   worktree being reviewed). Lives in the project being reviewed,
+   not in this skills directory. Frontmatter `mode` controls how
+   it combines with the defaults:
+   - `mode: append` (default if frontmatter is absent or `mode` is
+     unset) — your rules apply **after** the defaults; both sets
+     are active.
+   - `mode: replace` — the defaults are ignored entirely; only
+     your override is active.
 
-Optional YAML frontmatter controls how the override merges. The
-example below is illustrative — the two priorities shown are
-just examples of the kind of rules a team might add; replace them
-with whatever your project actually cares about (a database team
-might write something completely different than a frontend team):
+The example below is illustrative — substitute your team's real
+priorities (a database team's list looks nothing like a frontend
+team's):
 
 ```yaml
 ---
@@ -120,11 +132,6 @@ mode: append    # default; can be omitted
 6. **Migration safety** — for changes touching tables >1M rows,
    require a backfill plan and locking analysis.
 ```
-
-- `mode: append` (the default if the field is absent) — your rules
-  apply **after** the defaults; both sets are active.
-- `mode: replace` — the defaults are ignored entirely; only your
-  override is active.
 
 Whether to commit `review-cycle-rules.md` is a team decision: commit
 when the rule set reflects shared engineering standards; gitignore
