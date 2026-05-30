@@ -203,7 +203,7 @@ The available choices depend on whether Step 2 found open feedback:
 | Choice | Offered when | What happens |
 | --- | --- | --- |
 | **Address feedback** | Step 2 found open threads | Run Step 4 (commit/push/reply/resolve); arm the watcher when Step 4 returns |
-| **Monitor** | Always | Arm the 1h watcher; make no other changes to the PR |
+| **Monitor** | Always | Arm the 1h watcher and run the lightweight unresolved-thread check (see below); don't address or resolve feedback unless the user agrees when asked |
 | **Both** | Step 2 found open threads | Same as Address (Step 4 → arm) |
 | **Hold** | Always | End the cycle with no action; tell the user how to re-arm later |
 
@@ -238,6 +238,24 @@ Monitor paths:
 For **Hold**, no watcher is armed — say so explicitly (e.g. "no
 action taken; watcher off") and reuse the `pr-watch.sh start`
 command from the menu's Hold row as the re-arm reminder.
+
+### Monitor Path Existing Feedback Check
+
+When the user asks to "rearm", "watch", or "monitor" an existing
+PR — or invokes the skill on a PR after a previous watch ended,
+even if they don't use those verbs — do not assume they only want
+future activity.
+
+Before arming or immediately after arming, perform a lightweight
+unresolved-thread check:
+
+- Fetch PR review threads via GraphQL.
+- If any new or unresolved threads exist, tell the user:
+  "Watcher is armed, and I found <N> existing unresolved
+  thread(s). Want me to review/address them now?"
+- Do not summarize every thread unless the user says yes.
+- If no unresolved threads exist, say:
+  "Watcher is armed; no existing unresolved threads found."
 
 **Verification re-fetch (Address or Both paths only):** Right
 after arming the watcher post-Step-4, re-enter Step 1 once. A
