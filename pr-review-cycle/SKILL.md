@@ -77,8 +77,14 @@ fixes (Step 4). Mismatches are common when juggling worktrees —
 pushing fixes from the wrong worktree silently lands them on the
 wrong branch.
 
-If anything looks off (wrong branch, wrong repo, dirty working tree,
-unexpected path), **stop and ask the user** before continuing.
+If anything looks off (wrong branch, wrong repo, unexpected path),
+**stop and ask the user** before continuing.
+
+If the working tree is dirty, treat the uncommitted changes as another
+agent's (or the user's) in-progress work unless you made them this
+session. Surface what's modified and ask before continuing —
+especially if any file you'd touch during Step 4 overlaps with the
+uncommitted set.
 
 ## Step 0: Check PR state
 
@@ -177,6 +183,10 @@ project removed something via `mode: replace`, that's deliberate.
 ## Step 4: Resolve Feedback (when asked to)
 
 After resolving review feedback:
+0. **Stage only files you modified this session, by explicit path.**
+   Do not `git add -A`, `git add .`, or stage unrelated uncommitted
+   changes. If the working tree contains changes you didn't make this
+   session, leave them untouched and remind the user they're there.
 1. Commit and push fixes first
 2. Then reply to each PR comment with:
    - Robot emoji prefix
