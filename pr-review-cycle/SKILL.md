@@ -168,7 +168,11 @@ The merged ruleset is what drives the priority analysis below.
 
 Present a summary to the user:
 - What the PR does (purpose, scope)
-- All review feedback grouped by priority
+- All review feedback grouped by priority, **headline-level only** —
+  per finding (or grouped item): file, what's flagged, severity,
+  a one-line proposed fix, and your decision (**Fix** / **Won't Fix**
+  / Defer-to-user). No code snippets, no full reviewer text — those
+  come in Step 4's walkthrough.
 - Which conversations are resolved vs. still open
 - Proposed next steps
 
@@ -196,9 +200,64 @@ it's correct, but don't dismiss without review either.
   same pass when practical — but stop at touched surfaces, owner
   boundaries, and clear follow-up territory.
 
+### Build the review todo
+
+Build a todo list of every reviewer finding using `TaskCreate`.
+Group near-duplicates into a single item:
+
+- Same file + line flagged by multiple reviewers → one item
+- Same bug class across multiple files → one item, with each
+  location listed
+
+The todo list is the working artifact for Step 4's walkthrough.
+
 ## Step 4: Resolve Feedback (when asked to)
 
-After resolving review feedback:
+### Choose a mode
+
+Before walking through findings, ask the user how they want to work
+through them:
+
+> "Ready to resolve N items. How would you like to work through them?
+> - **Walk through each** — present Summary/Opinion/Proposal, decide
+>   one at a time
+> - **Apply clear fixes, stop on judgment calls** — auto-apply items
+>   where my Opinion is confident Fix; pause on Won't Fix, uncertain,
+>   or push-back items
+> - **Apply all as proposed** — fix everything per my proposals;
+>   surface Won't Fix items for confirmation only
+> - **Cancel** — back to the previous menu"
+
+The mode controls *presentation cadence*, not whether to do the
+work. The Handling feedback rules (verify, surface low-quality,
+sibling scan) still run during analysis and produce the Opinion
+that distinguishes clear Fix items from judgment calls.
+
+### Walkthrough
+
+Address items from the todo list one at a time. For each:
+
+1. **Present** — Summary (what the reviewer said, 1–2 sentences),
+   Opinion (your analysis under the Handling feedback rules —
+   verified? speculative? confirmable?), Proposal (Fix with proposed
+   change / Won't Fix with rationale / Defer-to-user).
+2. **Wait** for the user's decision before moving on. Skip the wait
+   in "Apply all as proposed" mode for Fix items; never skip for
+   Won't Fix. In "Apply clear fixes" mode, skip the wait only when
+   your Opinion is confident Fix.
+3. **On Fix**: apply the change, stage by explicit path (see
+   per-item discipline below), mark the todo done.
+4. **Move on** to the next item — do not pre-load the next item's
+   detail.
+
+Batch commits at the end of related items where it makes sense (one
+commit per bug class). Reply to each thread separately. Resolve
+threads after their reply lands.
+
+### Per-item discipline
+
+When applying a fix during the walkthrough:
+
 0. **Stage only files you modified this session, by explicit path.**
    Do not `git add -A`, `git add .`, or stage unrelated uncommitted
    changes. If the working tree contains changes you didn't make this
