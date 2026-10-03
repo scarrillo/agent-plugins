@@ -40,9 +40,13 @@ Timestamps your prompts in the transcript and lets you jump back through them.
 
 - **Prompt rows** show when you sent them: `12:21:00 ❯ my prompt` for today, `2026-10-02 18:04:11 ❯ …` for older prompts. Wrapped lines stay aligned under the prompt text.
 - **Footer**: `↑ ↓ last 12:21:00` at the end of the hint line under the prompt. ↑ and ↓ step through your prompts; while navigating the label shows the position (`2/7 12:19:44`). Sending a prompt resets it.
-- **`/where-were-we`** lists your last 10 prompts; click a line to jump to that prompt.
+- **`/where-were-we`** lists your 6 most recent prompts, newest at the bottom; click a line to jump to that prompt.
+- **`/where-were-we count [n]`** shows or sets how many prompts the list shows (1–50).
+- **`/where-were-we order [chron|reverse]`** shows or sets the list order: `chron` puts the newest last (the default), `reverse` puts it first.
 - **`/where-were-we up | down | last`** steps like the arrows, from the keyboard (works mid-turn).
 - **`/where-were-we status`** prints the mod's state and recent log lines for troubleshooting.
+
+The count and order are kept in the mod's own store (a JSON file of its own under `~/.claude/`), not in `settings.json`, and last across sessions.
 
 Prompts sent while the mod is loaded are stamped as they're stored. Prompts from before (a `--resume`, or the mod enabled mid-session) and prompts queued mid-turn are read from the session's transcript file.
 

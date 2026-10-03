@@ -58,8 +58,8 @@ export function toPreview(text: string): string {
 
 /**
  * The bare command's output as the transcript stores it and the model reads
- * it: one `- [date time] preview` line per prompt, full dates so a listing
- * stays right on later days. `parseListing` reads it back for drawing.
+ * it: one `- [date time] preview` line per prompt, in the order given, full
+ * dates so a listing stays right on later days. `parseListing` reads it back.
  */
 export function listText(recent: readonly Prompt[]): string {
   if (recent.length === 0) {
@@ -72,10 +72,13 @@ export function listText(recent: readonly Prompt[]): string {
 /** One line of a listing: its full stamp and the (possibly cut) preview. */
 export type ListedLine = { stamp: string; preview: string }
 
-/** The lines `listText` wrote; anything else in `text` is skipped. */
+/**
+ * The lines `listText` wrote; anything else in `text` is skipped. A first
+ * line may carry the engine's `<plugin>: ` prefix.
+ */
 export function parseListing(text: string): ListedLine[] {
   return text.split('\n').flatMap(line => {
-    const match = /^- \[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] (.*)$/.exec(line)
+    const match = /^(?:[\w-]+: )?- \[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] (.*)$/.exec(line)
     return match?.[1] !== undefined && match[2] !== undefined ? [{ stamp: match[1], preview: match[2] }] : []
   })
 }

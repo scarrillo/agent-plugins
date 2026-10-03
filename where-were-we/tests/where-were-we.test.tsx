@@ -69,7 +69,7 @@ describe('listing', () => {
   test('lists full stamps and cut previews, and reads them back', async () => {
     const text = listText([long, short])
     expect(text).toBe(`- [2026-10-02 18:04:11] ${'x'.repeat(59)}\u2026\n- [2026-10-03 12:21:00] short one`)
-    const lines = parseListing(`Some header\n${text}`)
+    const lines = parseListing(`where-were-we: ${text}\nSome footer`)
     expect(lines.map(one => findListed([long, short], one)?.uuid)).toEqual(['l', 's'])
     expect(listText([])).toBe('No prompts yet.')
   })
@@ -88,12 +88,13 @@ const promptLine = (uuid: string, minute: number) =>
   })
 
 /**
- * Stands in for the engine beneath the plugin: the clock, grep over a
+ * Stands in for the engine beneath the plugin: the clock, the store, grep over a
  * transcript holding `lines`, logs, toasts and the engine's own rows. A
  * transcript row's scroll has no stub point in the kit, so jumps toast there.
  */
 function engine(on: On, lines: string[]) {
   mock.clock(on, { now: NOW })
+  mock.store(on)
   on('process.run', ($, e) => {
     const isGrep = e.argv[0] === 'grep' && e.argv.at(-1) === TRANSCRIPT
     const value = {
@@ -182,7 +183,7 @@ test('the footer arrows and /where-were-we step through the prompts', async ($, 
   }
 })
 
-test('the bare command lists recent prompts, each line jumping to its prompt', async ($, on) => {
+test('the bare command lists recent prompts newest last, each line jumping to its prompt', async ($, on) => {
   engine(on, [promptLine('p1', 21), promptLine('p2', 22), promptLine('p3', 23)])
   await startSession($)
   const command = (args: string) =>
@@ -211,5 +212,31 @@ test('the bare command lists recent prompts, each line jumping to its prompt', a
     await footer.unmount()
   }
 
-  expect((await command('sideways')).text).toBe('Usage: /where-were-we [up|down|last|status]')
+  expect((await command('sideways')).text).toBe('Usage: /where-were-we [up|down|last|count [n]|order [chron|reverse]|status]')
+})
+
+test('count and order, kept in the mod store, shape the bare listing', async ($, on) => {
+  engine(on, [promptLine('p1', 21), promptLine('p2', 22), promptLine('p3', 23)])
+  await startSession($)
+  const command = async (args: string) =>
+    (
+      await $.command.run({
+        command: 'where-were-we', args, origin: { kind: 'composer' },
+        presentation: { isFullscreen: true, columns: 120 },
+      })
+    ).text
+
+  expect(await command('count')).toBe('Listing 6 prompts. Change it with /where-were-we count <1-50>.')
+  expect(await command('order')).toBe('Listing chron (newest last). Change it with /where-were-we order chron|reverse.')
+
+  expect(await command('count 2')).toBe('Listing 2 prompts from now on.')
+  expect(await command('')).toBe('- [2026-10-03 12:22:00] prompt p2\n- [2026-10-03 12:23:00] prompt p3')
+
+  expect(await command('order reverse')).toBe('Listing reverse (newest first) from now on.')
+  expect(await command('')).toBe('- [2026-10-03 12:23:00] prompt p3\n- [2026-10-03 12:22:00] prompt p2')
+
+  for (const bad of ['count 0', 'count 51', 'count 2.5', 'count many']) {
+    expect(await command(bad)).toBe('The count is a whole number from 1 to 50.')
+  }
+  expect(await command('order sideways')).toBe('The order is chron (newest last) or reverse (newest first).')
 })

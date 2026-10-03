@@ -16,8 +16,13 @@ import {
 } from './prompts'
 
 const COMMAND = 'where-were-we'
-/** How many prompts the bare command lists. */
-const LISTED = 10
+/** How many prompts the bare command lists until `/where-were-we count` sets it. */
+const LISTED_DEFAULT = 6
+const LISTED_MAX = 50
+/** `chron` lists the newest prompt last (nearest the prompt), `reverse` first. */
+const ORDERS = ['chron', 'reverse'] as const
+type Order = (typeof ORDERS)[number]
+const USAGE = `Usage: /${COMMAND} [up|down|last|count [n]|order [chron|reverse]|status]`
 const POINTER = '❯'
 /** The UserMessage origins that are the person's own prompts. */
 const PERSON = new Set(['composer', 'bridge', 'sdk', 'unclassified'])
@@ -99,6 +104,21 @@ async function jump($: EngineInterface, move: Move) {
   await goTo($, list, moveCursor(from, list.length, move), `jump ${move} from ${from ?? 'none'}`)
 }
 
+/**
+ * How many prompts the bare command lists: the count kept in the mod's own
+ * store (a JSON file of its own, not settings.json), else LISTED_DEFAULT.
+ */
+async function listCount($: EngineInterface) {
+  const kept = await $.store.get('listCount')
+  return typeof kept === 'number' && Number.isInteger(kept) && kept >= 1 && kept <= LISTED_MAX ? kept : LISTED_DEFAULT
+}
+
+/** The bare command's order, kept in the mod's store like the count; `chron` until set. */
+async function listOrder($: EngineInterface): Promise<Order> {
+  const kept = await $.store.get('listOrder')
+  return ORDERS.find(order => order === kept) ?? 'chron'
+}
+
 /** Jumps to one prompt by its id, its place in the list read at the press. */
 async function jumpTo($: EngineInterface, uuid: string) {
   const list = await read($, prompts)
@@ -133,7 +153,7 @@ export const register: Register = on => {
     await $.command.register({
       name: COMMAND,
       description: 'List your recent prompts; up, down, last jump through them; status for diagnostics',
-      argumentHint: '[up|down|last|status]',
+      argumentHint: '[up|down|last|count [n]|status]',
       immediate: true,
     })
     debug($, `loaded; utc offset ${-new Date().getTimezoneOffset()} min`)
@@ -195,11 +215,38 @@ export const register: Register = on => {
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
+    const [word = '', value, ...extra] = arg.split(/\s+/)
+    if (word === 'count') {
+      if (value === undefined) {
+        return { text: `Listing ${await listCount($)} prompts. Change it with /${COMMAND} count <1-${LISTED_MAX}>.` }
+      }
+      const count = Number(value)
+      if (extra.length > 0 || !Number.isInteger(count) || count < 1 || count > LISTED_MAX) {
+        return { text: `The count is a whole number from 1 to ${LISTED_MAX}.` }
+      }
+      await $.store.set('listCount', count)
+      debug($, `/${COMMAND} count ${count}`)
+      return { text: `Listing ${count} prompts from now on.` }
+    }
+    if (word === 'order') {
+      const describe = (order: Order) => (order === 'chron' ? 'newest last' : 'newest first')
+      if (value === undefined) {
+        const order = await listOrder($)
+        return { text: `Listing ${order} (${describe(order)}). Change it with /${COMMAND} order chron|reverse.` }
+      }
+      const order = ORDERS.find(one => one === value)
+      if (order === undefined || extra.length > 0) {
+        return { text: `The order is chron (newest last) or reverse (newest first).` }
+      }
+      await $.store.set('listOrder', order)
+      debug($, `/${COMMAND} order ${order}`)
+      return { text: `Listing ${order} (${describe(order)}) from now on.` }
+    }
     if (arg === 'status') {
       const list = await read($, prompts)
       const now = await $.clock.now()
       const lines = [
-        `prompts known: ${list.length}; cursor: ${await read($, cursor) ?? 'none'}`,
+        `prompts known: ${list.length}; cursor: ${await read($, cursor) ?? 'none'}; listing: ${await listCount($)}, ${await listOrder($)}`,
         `transcript: ${await read($, transcriptPath) ?? 'not seen yet'}`,
         `backfilled from: ${await read($, backfilledFrom) ?? 'never'}`,
         `fullscreen: ${e.presentation.isFullscreen}; utc offset: ${-new Date().getTimezoneOffset()} min`,
@@ -211,13 +258,16 @@ export const register: Register = on => {
     }
     if (arg === '') {
       const list = await read($, prompts)
-      debug($, `/${COMMAND}: listed ${Math.min(list.length, LISTED)} of ${list.length} prompts`)
-      return { text: listText(list.slice(-LISTED)) }
+      const listed = await listCount($)
+      const order = await listOrder($)
+      const recentPrompts = list.slice(-listed)
+      debug($, `/${COMMAND}: listed ${recentPrompts.length} of ${list.length} prompts, ${order}`)
+      return { text: listText(order === 'reverse' ? recentPrompts.reverse() : recentPrompts) }
     }
     const moves: Record<string, Move> = { up: 'older', down: 'newer', last: 'last' }
     const move = moves[arg]
     if (move === undefined) {
-      return { text: `Usage: /${COMMAND} [up|down|last|status]` }
+      return { text: USAGE }
     }
     debug($, `/${COMMAND} ${arg}`)
     await jump($, move)
