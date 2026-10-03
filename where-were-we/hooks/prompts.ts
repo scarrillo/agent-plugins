@@ -61,7 +61,7 @@ export function toPreview(text: string): string {
  * it: one `- [date time] preview` line per prompt, in the order given, full
  * dates so a listing stays right on later days. `parseListing` reads it back.
  */
-export function listText(recent: readonly Prompt[]): string {
+export function listText(recent: readonly Pick<Prompt, 'at' | 'preview'>[]): string {
   if (recent.length === 0) {
     return 'No prompts yet.'
   }
@@ -178,4 +178,61 @@ export function moveCursor(cursor: number | null, count: number, move: 'older' |
   const to = move === 'older' ? from - 1 : from + 1
 
   return Math.min(Math.max(to, 0), newest)
+}
+
+/** The fixed string grep keeps a project's lines of `history.jsonl` by. */
+export const historyMarker = (project: string) => `"project":${JSON.stringify(project)}`
+
+/** The latest earlier session in a project, as Claude Code's prompt history recorded it. */
+export type PastSession = {
+  sessionId: string
+  /** Its prompts, oldest first: when each was sent and its text on one line. */
+  prompts: Pick<Prompt, 'at' | 'preview'>[]
+}
+
+type HistoryRow = { display?: unknown; timestamp?: unknown; project?: unknown; sessionId?: unknown }
+
+/**
+ * The most recent session other than `currentId` in `project`, from lines of
+ * `~/.claude/history.jsonl`. Slash commands and `!` shell commands are not
+ * prompts to Claude and are skipped. Only `display` is read: `pastedContents`
+ * can hold pasted secrets, and `display` already shows pastes as placeholders.
+ */
+export function previousSession(lines: readonly string[], project: string, currentId: string): PastSession | null {
+  const sessions = new Map<string, Pick<Prompt, 'at' | 'preview'>[]>()
+  for (const line of lines) {
+    let row: HistoryRow
+    try {
+      row = JSON.parse(line) as HistoryRow
+    } catch {
+      continue
+    }
+    const { display, timestamp, sessionId } = row
+    if (row.project !== project || typeof sessionId !== 'string' || sessionId === currentId) {
+      continue
+    }
+    if (typeof display !== 'string' || typeof timestamp !== 'number') {
+      continue
+    }
+    const text = display.trim()
+    if (text === '' || text.startsWith('/') || text.startsWith('!')) {
+      continue
+    }
+    const prompts = sessions.get(sessionId) ?? []
+    prompts.push({ at: timestamp, preview: toPreview(text) })
+    sessions.set(sessionId, prompts)
+  }
+
+  let latest: PastSession | null = null
+  let latestAt = -Infinity
+  for (const [sessionId, prompts] of sessions) {
+    prompts.sort((a, b) => a.at - b.at)
+    const endedAt = prompts.at(-1)?.at ?? -Infinity
+    if (endedAt > latestAt) {
+      latest = { sessionId, prompts }
+      latestAt = endedAt
+    }
+  }
+
+  return latest
 }

@@ -43,7 +43,8 @@ Timestamps your prompts in the transcript and lets you jump back through them.
 - **`/where-were-we`** lists your 6 most recent prompts, newest at the bottom; click a line to jump to that prompt.
 - **`/where-were-we count [n]`** shows or sets how many prompts the list shows (1–50).
 - **`/where-were-we order [chron|reverse]`** shows or sets the list order: `chron` puts the newest last (the default), `reverse` puts it first.
-- **`/where-were-we up | down | last`** steps like the arrows, from the keyboard (works mid-turn).
+- **`/where-were-we up | down | newest`** steps like the arrows, from the keyboard (works mid-turn).
+- **`/where-were-we last`** recaps how the previous session in this project ended: its final prompts (same count and order) and the `claude --resume <id>` command to pick it up. It reads Claude Code's prompt history (`~/.claude/history.jsonl`), skipping slash and `!` commands, and never reads pasted content.
 - **`/where-were-we status`** prints the mod's state and recent log lines for troubleshooting.
 
 The count and order are kept in the mod's own store (a JSON file of its own under `~/.claude/`), not in `settings.json`, and last across sessions.

@@ -2,7 +2,16 @@ import type { On } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { findListed, formatStamp, listText, mergePrompts, moveCursor, parseListing, promptFromLine } from '../hooks/prompts'
+import {
+  findListed,
+  formatStamp,
+  listText,
+  mergePrompts,
+  moveCursor,
+  parseListing,
+  previousSession,
+  promptFromLine,
+} from '../hooks/prompts'
 
 const NOW = new Date(2026, 9, 3, 12, 30, 0).getTime()
 const SENT = new Date(2026, 9, 3, 12, 21, 0).getTime()
@@ -62,6 +71,29 @@ describe('navigation helpers', () => {
   })
 })
 
+describe('previousSession', () => {
+  test('picks the latest other session in the project, its prompts only', async () => {
+    const lines = [
+      historyLine('old', 'first ever', 1_000),
+      historyLine('recent', 'fix the bug', 5_000),
+      historyLine('recent', '/where-were-we status', 5_500),
+      historyLine('recent', '!git status', 5_600),
+      historyLine('recent', 'now   ship\n it', 6_000),
+      historyLine('current', 'this session', 9_000),
+      historyLine('elsewhere', 'other project', 9_500, '/elsewhere'),
+      'not json',
+    ]
+    expect(previousSession(lines, PROJECT, 'current')).toEqual({
+      sessionId: 'recent',
+      prompts: [
+        { at: 5_000, preview: 'fix the bug' },
+        { at: 6_000, preview: 'now ship it' },
+      ],
+    })
+    expect(previousSession([historyLine('current', 'only me', 1)], PROJECT, 'current')).toBe(null)
+  })
+})
+
 describe('listing', () => {
   const long = { uuid: 'l', at: new Date(2026, 9, 2, 18, 4, 11).getTime(), preview: 'x'.repeat(100) }
   const short = { uuid: 's', at: SENT, preview: 'short one' }
@@ -76,7 +108,13 @@ describe('listing', () => {
 })
 
 const PROMPT_PROPS = { text: 'my prompt', origin: { kind: 'composer' }, isExpanded: false } as const
-const TRANSCRIPT = '/tmp/session.jsonl'
+const TRANSCRIPT = '/cfg/projects/-work/current.jsonl'
+const HISTORY = '/cfg/history.jsonl'
+const PROJECT = '/work'
+
+/** A history.jsonl line, as Claude Code's prompt history records one. */
+const historyLine = (sessionId: string, display: string, at: number, project = PROJECT) =>
+  JSON.stringify({ display, pastedContents: { 1: { content: 'SECRET' } }, timestamp: at, project, sessionId })
 
 /** A transcript line for a prompt sent at local 12:mm:00 today. */
 const promptLine = (uuid: string, minute: number) =>
@@ -92,14 +130,15 @@ const promptLine = (uuid: string, minute: number) =>
  * transcript holding `lines`, logs, toasts and the engine's own rows. A
  * transcript row's scroll has no stub point in the kit, so jumps toast there.
  */
-function engine(on: On, lines: string[]) {
+function engine(on: On, lines: string[], history: string[] = []) {
   mock.clock(on, { now: NOW })
   mock.store(on)
   on('process.run', ($, e) => {
-    const isGrep = e.argv[0] === 'grep' && e.argv.at(-1) === TRANSCRIPT
+    const file = e.argv[0] === 'grep' ? e.argv.at(-1) : undefined
+    const found = file === TRANSCRIPT ? lines : file === HISTORY ? history.filter(line => line.includes(`"project":"${PROJECT}"`)) : null
     const value = {
-      exitCode: isGrep ? 0 : 2,
-      stdout: isGrep ? lines.join('\n') + '\n' : '',
+      exitCode: found === null ? 2 : found.length > 0 ? 0 : 1,
+      stdout: found === null ? '' : found.join('\n') + '\n',
       stderr: '',
       isStdoutTruncated: false,
       isStderrTruncated: false,
@@ -107,6 +146,8 @@ function engine(on: On, lines: string[]) {
     return { value }
   })
   on('classic.SessionStart', () => ({}))
+  on('session.id', () => ({ value: 'current' }))
+  on('session.cwd', () => ({ value: PROJECT }))
   on('ui.log', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
   on('ui.render', ($, e) => {
@@ -167,7 +208,7 @@ test('the footer arrows and /where-were-we step through the prompts', async ($, 
   await idle.unmount()
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    await command('last')
+    await command('newest')
     const footer = await $.ui.mount({ plugin: 'where-were-we', surface, component: 'PromptHint', props: hint })
     expect(await footer.find({ type: 'Text', text: /3\/3 12:23:00/ })).toBeDefined()
     await footer.press({ key: 'older' })
@@ -212,7 +253,7 @@ test('the bare command lists recent prompts newest last, each line jumping to it
     await footer.unmount()
   }
 
-  expect((await command('sideways')).text).toBe('Usage: /where-were-we [up|down|last|count [n]|order [chron|reverse]|status]')
+  expect((await command('sideways')).text).toBe('Usage: /where-were-we [up|down|newest|last|count [n]|order [chron|reverse]|status]')
 })
 
 test('count and order, kept in the mod store, shape the bare listing', async ($, on) => {
@@ -239,4 +280,53 @@ test('count and order, kept in the mod store, shape the bare listing', async ($,
     expect(await command(bad)).toBe('The count is a whole number from 1 to 50.')
   }
   expect(await command('order sideways')).toBe('The order is chron (newest last) or reverse (newest first).')
+})
+
+test('last recaps the previous session in this project from the prompt history', async ($, on) => {
+  const at = (minute: number) => new Date(2026, 9, 2, 18, minute, 0).getTime()
+  engine(on, [], [
+    historyLine('yesterday', 'refactor the auth middleware', at(1)),
+    historyLine('yesterday', 'run the tests', at(4)),
+    historyLine('current', 'today', NOW),
+  ])
+  await startSession($)
+  const command = async (args: string) =>
+    (
+      await $.command.run({
+        command: 'where-were-we', args, origin: { kind: 'composer' },
+        presentation: { isFullscreen: true, columns: 120 },
+      })
+    ).text ?? ''
+
+  const text = await command('last')
+  expect(text).toBe(
+    [
+      'Previous session in this project, last active 2026-10-02 18:04:00 (2 prompts):',
+      '- [2026-10-02 18:01:00] refactor the auth middleware',
+      '- [2026-10-02 18:04:00] run the tests',
+      'Resume it: claude --resume yesterday',
+    ].join('\n'),
+  )
+  expect(text.includes('SECRET')).toBe(false)
+
+  await command('order reverse')
+  expect((await command('last')).split('\n')[1]).toBe('- [2026-10-02 18:04:00] run the tests')
+
+  // Drawn as the engine's own row: its lines name another session's prompts.
+  const row = await $.ui.mount({
+    plugin: 'where-were-we', surface: 'terminal', component: 'CommandOutput',
+    props: { command: 'where-were-we', args: 'last', text, isErrored: false },
+  })
+  expect(await row.find({ type: 'Text', text: 'ENGINE' })).toBeDefined()
+  await row.unmount()
+})
+
+test('last says so when the project has no earlier session', async ($, on) => {
+  engine(on, [], [historyLine('current', 'today', NOW)])
+  await startSession($)
+  const { text } = await $.command.run({
+    command: 'where-were-we', args: 'last', origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 120 },
+  })
+  expect(text).toBe('No earlier session in this project.')
 })

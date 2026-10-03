@@ -6,10 +6,13 @@ import {
   TRANSCRIPT_MARKERS,
   findListed,
   formatStamp,
+  fullStamp,
+  historyMarker,
   listText,
   mergePrompts,
   moveCursor,
   parseListing,
+  previousSession,
   promptFromLine,
   toPreview,
   truncate,
@@ -22,7 +25,7 @@ const LISTED_MAX = 50
 /** `chron` lists the newest prompt last (nearest the prompt), `reverse` first. */
 const ORDERS = ['chron', 'reverse'] as const
 type Order = (typeof ORDERS)[number]
-const USAGE = `Usage: /${COMMAND} [up|down|last|count [n]|order [chron|reverse]|status]`
+const USAGE = `Usage: /${COMMAND} [up|down|newest|last|count [n]|order [chron|reverse]|status]`
 const POINTER = '❯'
 /** The UserMessage origins that are the person's own prompts. */
 const PERSON = new Set(['composer', 'bridge', 'sdk', 'unclassified'])
@@ -119,6 +122,53 @@ async function listOrder($: EngineInterface): Promise<Order> {
   return ORDERS.find(order => order === kept) ?? 'chron'
 }
 
+/**
+ * Claude Code's prompt history file: beside `projects/` in the configuration
+ * directory the transcript lives under, so a custom CLAUDE_CONFIG_DIR is kept.
+ */
+async function historyPath($: EngineInterface) {
+  const transcript = await read($, transcriptPath)
+  const projects = transcript?.lastIndexOf('/projects/') ?? -1
+  if (transcript && projects > 0) {
+    return `${transcript.slice(0, projects)}/history.jsonl`
+  }
+  const home = await $.env.get('HOME')
+  return home ? `${home}/.claude/history.jsonl` : null
+}
+
+/**
+ * `/where-were-we last`: how the previous session in this project ended, from
+ * Claude Code's prompt history (this session's transcript can't know), with
+ * the command that resumes it. Listed with the same count and order.
+ */
+async function lastSession($: EngineInterface) {
+  const path = await historyPath($)
+  if (path === null) {
+    return 'Could not find Claude Code\'s prompt history.'
+  }
+  const project = await $.session.cwd()
+  const run = await $.process.run(['grep', '-F', '-e', historyMarker(project), '--', path], { timeoutMs: 15_000 })
+  if (run.exitCode > 1) {
+    debug($, `last: grep failed with ${run.exitCode}: ${run.stderr.trim()}`)
+    return `Could not read ${path}.`
+  }
+  const past = previousSession(run.stdout.split('\n'), project, await $.session.id())
+  debug($, `last: ${past ? `session ${past.sessionId}, ${past.prompts.length} prompts` : 'no earlier session'} in ${project}`)
+  if (past === null) {
+    return 'No earlier session in this project.'
+  }
+  const ended = past.prompts.at(-1)?.at ?? 0
+  const recentPrompts = past.prompts.slice(-(await listCount($)))
+  const listed = (await listOrder($)) === 'reverse' ? recentPrompts.reverse() : recentPrompts
+  const count = past.prompts.length
+
+  return [
+    `Previous session in this project, last active ${fullStamp(ended)} (${count} prompt${count === 1 ? '' : 's'}):`,
+    listText(listed),
+    `Resume it: claude --resume ${past.sessionId}`,
+  ].join('\n')
+}
+
 /** Jumps to one prompt by its id, its place in the list read at the press. */
 async function jumpTo($: EngineInterface, uuid: string) {
   const list = await read($, prompts)
@@ -152,8 +202,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'List your recent prompts; up, down, last jump through them; status for diagnostics',
-      argumentHint: '[up|down|last|count [n]|status]',
+      description: 'List your recent prompts; up, down, newest jump through them; last recaps the previous session',
+      argumentHint: '[up|down|newest|last|count [n]|order [chron|reverse]|status]',
       immediate: true,
     })
     debug($, `loaded; utc offset ${-new Date().getTimezoneOffset()} min`)
@@ -242,6 +292,9 @@ export const register: Register = on => {
       debug($, `/${COMMAND} order ${order}`)
       return { text: `Listing ${order} (${describe(order)}) from now on.` }
     }
+    if (arg === 'last') {
+      return { text: await lastSession($) }
+    }
     if (arg === 'status') {
       const list = await read($, prompts)
       const now = await $.clock.now()
@@ -264,7 +317,7 @@ export const register: Register = on => {
       debug($, `/${COMMAND}: listed ${recentPrompts.length} of ${list.length} prompts, ${order}`)
       return { text: listText(order === 'reverse' ? recentPrompts.reverse() : recentPrompts) }
     }
-    const moves: Record<string, Move> = { up: 'older', down: 'newer', last: 'last' }
+    const moves: Record<string, Move> = { up: 'older', down: 'newer', newest: 'last' }
     const move = moves[arg]
     if (move === undefined) {
       return { text: USAGE }
@@ -279,7 +332,7 @@ export const register: Register = on => {
   // its prompt. The stored text stays plain; each line is matched back to its
   // prompt by its second and preview, as the row carries no ids.
   on('ui.render', { component: 'CommandOutput', props: { command: COMMAND } }, async ($, e, next) => {
-    const lines = parseListing(e.props.text)
+    const lines = e.props.args.trim() === '' ? parseListing(e.props.text) : []
     if (lines.length === 0) {
       return next(e)
     }
