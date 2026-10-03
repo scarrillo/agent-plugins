@@ -45,9 +45,11 @@ Timestamps your prompts in the transcript and lets you jump back through them.
 - **`/where-were-we order [chron|reverse]`** shows or sets the list order: `chron` puts the newest last (the default), `reverse` puts it first.
 - **`/where-were-we up | down | newest`** steps like the arrows, from the keyboard (works mid-turn).
 - **`/where-were-we last`** recaps how the previous session in this project ended: its final prompts (same count and order) and the `claude --resume <id>` command to pick it up. It reads Claude Code's prompt history (`~/.claude/history.jsonl`), skipping slash and `!` commands, and never reads pasted content.
+- **Startup greeting**: when you start a fresh session in a project, a toast says how the last one ended: `Last here yesterday 18:04: "run the tests" · /where-were-we last`. Not on `--resume`/`--continue`, `/clear` or compaction, and not in `claude -p`.
+- **`/where-were-we greeting [on|off]`** shows or sets whether the startup greeting appears (on by default).
 - **`/where-were-we status`** prints the mod's state and recent log lines for troubleshooting.
 
-The count and order are kept in the mod's own store (a JSON file of its own under `~/.claude/`), not in `settings.json`, and last across sessions.
+The count, order and greeting setting are kept in the mod's own store (a JSON file of its own under `~/.claude/`), not in `settings.json`, and last across sessions.
 
 Prompts sent while the mod is loaded are stamped as they're stored. Prompts from before (a `--resume`, or the mod enabled mid-session) and prompts queued mid-turn are read from the session's transcript file.
 

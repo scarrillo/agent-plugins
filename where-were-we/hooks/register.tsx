@@ -7,6 +7,7 @@ import {
   findListed,
   formatStamp,
   fullStamp,
+  greetingText,
   historyMarker,
   listText,
   mergePrompts,
@@ -17,6 +18,7 @@ import {
   toPreview,
   truncate,
 } from './prompts'
+import type { PastSession } from './prompts'
 
 const COMMAND = 'where-were-we'
 /** How many prompts the bare command lists until `/where-were-we count` sets it. */
@@ -25,7 +27,7 @@ const LISTED_MAX = 50
 /** `chron` lists the newest prompt last (nearest the prompt), `reverse` first. */
 const ORDERS = ['chron', 'reverse'] as const
 type Order = (typeof ORDERS)[number]
-const USAGE = `Usage: /${COMMAND} [up|down|newest|last|count [n]|order [chron|reverse]|status]`
+const USAGE = `Usage: /${COMMAND} [up|down|newest|last|count [n]|order [chron|reverse]|greeting [on|off]|status]`
 const POINTER = '❯'
 /** The UserMessage origins that are the person's own prompts. */
 const PERSON = new Set(['composer', 'bridge', 'sdk', 'unclassified'])
@@ -137,23 +139,65 @@ async function historyPath($: EngineInterface) {
 }
 
 /**
+ * The previous session in this project from Claude Code's prompt history, or
+ * the problem that kept it from being read. Shared by `last` and the greeting.
+ */
+async function findPreviousSession(
+  $: EngineInterface,
+  why: string,
+): Promise<{ past: PastSession | null } | { problem: string }> {
+  const path = await historyPath($)
+  if (path === null) {
+    return { problem: 'Could not find Claude Code\'s prompt history.' }
+  }
+  const project = await $.session.cwd()
+  const run = await $.process.run(['grep', '-F', '-e', historyMarker(project), '--', path], { timeoutMs: 15_000 })
+  if (run.exitCode > 1) {
+    debug($, `${why}: grep failed with ${run.exitCode}: ${run.stderr.trim()}`)
+    return { problem: `Could not read ${path}.` }
+  }
+  const past = previousSession(run.stdout.split('\n'), project, await $.session.id())
+  debug($, `${why}: ${past ? `session ${past.sessionId}, ${past.prompts.length} prompts` : 'no earlier session'} in ${project}`)
+
+  return { past }
+}
+
+/** Whether the startup greeting is on: kept in the mod's store, on until turned off. */
+async function isGreetingOn($: EngineInterface) {
+  return (await $.store.get('greeting')) !== false
+}
+
+/**
+ * Shows, as a toast, when this project's previous session ended and its last
+ * prompt. Only at a fresh start where something draws, and never in the way
+ * of the session starting: any failure is logged and dropped.
+ */
+async function greet($: EngineInterface) {
+  try {
+    if (!(await isGreetingOn($)) || (await $.session.surface()) === null) {
+      return
+    }
+    const found = await findPreviousSession($, 'greeting')
+    const text = 'past' in found && found.past !== null ? greetingText(found.past, await $.clock.now()) : null
+    if (text !== null) {
+      $.ui.toast(text, { timeoutMs: 8_000 })
+    }
+  } catch (error) {
+    debug($, `greeting failed: ${String(error)}`)
+  }
+}
+
+/**
  * `/where-were-we last`: how the previous session in this project ended, from
  * Claude Code's prompt history (this session's transcript can't know), with
  * the command that resumes it. Listed with the same count and order.
  */
 async function lastSession($: EngineInterface) {
-  const path = await historyPath($)
-  if (path === null) {
-    return 'Could not find Claude Code\'s prompt history.'
+  const found = await findPreviousSession($, 'last')
+  if ('problem' in found) {
+    return found.problem
   }
-  const project = await $.session.cwd()
-  const run = await $.process.run(['grep', '-F', '-e', historyMarker(project), '--', path], { timeoutMs: 15_000 })
-  if (run.exitCode > 1) {
-    debug($, `last: grep failed with ${run.exitCode}: ${run.stderr.trim()}`)
-    return `Could not read ${path}.`
-  }
-  const past = previousSession(run.stdout.split('\n'), project, await $.session.id())
-  debug($, `last: ${past ? `session ${past.sessionId}, ${past.prompts.length} prompts` : 'no earlier session'} in ${project}`)
+  const { past } = found
   if (past === null) {
     return 'No earlier session in this project.'
   }
@@ -203,7 +247,7 @@ export const register: Register = on => {
     await $.command.register({
       name: COMMAND,
       description: 'List your recent prompts; up, down, newest jump through them; last recaps the previous session',
-      argumentHint: '[up|down|newest|last|count [n]|order [chron|reverse]|status]',
+      argumentHint: '[up|down|newest|last|count [n]|order [chron|reverse]|greeting [on|off]|status]',
       immediate: true,
     })
     debug($, `loaded; utc offset ${-new Date().getTimezoneOffset()} min`)
@@ -214,6 +258,10 @@ export const register: Register = on => {
   on('classic.SessionStart', async ($, e, next) => {
     await update($, transcriptPath, () => e.transcript_path)
     await backfill($, e.transcript_path, `session ${e.source}`)
+    // Only a fresh start: a resume, /clear, compaction or reload is no return.
+    if (e.source === 'startup') {
+      await greet($)
+    }
 
     return next(e)
   })
@@ -292,6 +340,18 @@ export const register: Register = on => {
       debug($, `/${COMMAND} order ${order}`)
       return { text: `Listing ${order} (${describe(order)}) from now on.` }
     }
+    if (word === 'greeting') {
+      if (value === undefined) {
+        const state = (await isGreetingOn($)) ? 'on' : 'off'
+        return { text: `The startup greeting is ${state}. Change it with /${COMMAND} greeting on|off.` }
+      }
+      if ((value !== 'on' && value !== 'off') || extra.length > 0) {
+        return { text: 'The greeting is on or off.' }
+      }
+      await $.store.set('greeting', value === 'on')
+      debug($, `/${COMMAND} greeting ${value}`)
+      return { text: `The startup greeting is ${value}.` }
+    }
     if (arg === 'last') {
       return { text: await lastSession($) }
     }
@@ -299,7 +359,7 @@ export const register: Register = on => {
       const list = await read($, prompts)
       const now = await $.clock.now()
       const lines = [
-        `prompts known: ${list.length}; cursor: ${await read($, cursor) ?? 'none'}; listing: ${await listCount($)}, ${await listOrder($)}`,
+        `prompts known: ${list.length}; cursor: ${await read($, cursor) ?? 'none'}; listing: ${await listCount($)}, ${await listOrder($)}; greeting: ${(await isGreetingOn($)) ? 'on' : 'off'}`,
         `transcript: ${await read($, transcriptPath) ?? 'not seen yet'}`,
         `backfilled from: ${await read($, backfilledFrom) ?? 'never'}`,
         `fullscreen: ${e.presentation.isFullscreen}; utc offset: ${-new Date().getTimezoneOffset()} min`,

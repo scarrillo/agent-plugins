@@ -3,8 +3,10 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import {
+  describeWhen,
   findListed,
   formatStamp,
+  greetingText,
   listText,
   mergePrompts,
   moveCursor,
@@ -94,6 +96,29 @@ describe('previousSession', () => {
   })
 })
 
+describe('greeting text', () => {
+  test('says today, yesterday, or the date', async () => {
+    expect(describeWhen(new Date(2026, 9, 3, 9, 5).getTime(), NOW)).toBe('today 09:05')
+    expect(describeWhen(new Date(2026, 9, 2, 18, 4).getTime(), NOW)).toBe('yesterday 18:04')
+    expect(describeWhen(new Date(2026, 8, 28, 7, 30).getTime(), NOW)).toBe('2026-09-28 07:30')
+    // The first of the month's yesterday is the last of the month before.
+    const first = new Date(2026, 10, 1, 8, 0).getTime()
+    expect(describeWhen(new Date(2026, 9, 31, 23, 59).getTime(), first)).toBe('yesterday 23:59')
+  })
+
+  test('names the last prompt, cut to fit, and the command for more', async () => {
+    const past = {
+      sessionId: 's',
+      prompts: [
+        { at: 1, preview: 'earlier' },
+        { at: new Date(2026, 9, 2, 18, 4).getTime(), preview: 'x'.repeat(80) },
+      ],
+    }
+    expect(greetingText(past, NOW)).toBe(`Last here yesterday 18:04: “${'x'.repeat(59)}…” · /where-were-we last`)
+    expect(greetingText({ sessionId: 's', prompts: [] }, NOW)).toBe(null)
+  })
+})
+
 describe('listing', () => {
   const long = { uuid: 'l', at: new Date(2026, 9, 2, 18, 4, 11).getTime(), preview: 'x'.repeat(100) }
   const short = { uuid: 's', at: SENT, preview: 'short one' }
@@ -130,7 +155,9 @@ const promptLine = (uuid: string, minute: number) =>
  * transcript holding `lines`, logs, toasts and the engine's own rows. A
  * transcript row's scroll has no stub point in the kit, so jumps toast there.
  */
-function engine(on: On, lines: string[], history: string[] = []) {
+function engine(on: On, lines: string[], history: string[] = [], surface: 'terminal' | null = 'terminal') {
+  /** The texts of the toasts shown, in order. */
+  const toasts: string[] = []
   mock.clock(on, { now: NOW })
   mock.store(on)
   on('process.run', ($, e) => {
@@ -148,12 +175,18 @@ function engine(on: On, lines: string[], history: string[] = []) {
   on('classic.SessionStart', () => ({}))
   on('session.id', () => ({ value: 'current' }))
   on('session.cwd', () => ({ value: PROJECT }))
+  on('session.surface', () => ({ value: surface }))
   on('ui.log', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>ENGINE</Text>
   })
+
+  return toasts
 }
 
 const startSession = ($: Engine) =>
@@ -256,7 +289,9 @@ test('the bare command lists recent prompts newest last, each line jumping to it
     await footer.unmount()
   }
 
-  expect((await command('sideways')).text).toBe('Usage: /where-were-we [up|down|newest|last|count [n]|order [chron|reverse]|status]')
+  expect((await command('sideways')).text).toBe(
+    'Usage: /where-were-we [up|down|newest|last|count [n]|order [chron|reverse]|greeting [on|off]|status]',
+  )
 })
 
 test('count and order, kept in the mod store, shape the bare listing', async ($, on) => {
@@ -332,4 +367,62 @@ test('last says so when the project has no earlier session', async ($, on) => {
     presentation: { isFullscreen: true, columns: 120 },
   })
   expect(text).toBe('No earlier session in this project.')
+})
+
+describe('startup greeting', () => {
+  const yesterday = (minute: number) => new Date(2026, 9, 2, 18, minute, 0).getTime()
+  const history = [
+    historyLine('yesterday', 'refactor the auth middleware', yesterday(1)),
+    historyLine('yesterday', 'run the tests', yesterday(4)),
+  ]
+  const greeting = 'Last here yesterday 18:04: “run the tests” · /where-were-we last'
+  const start = ($: Engine, source: 'startup' | 'resume' | 'clear' | 'compact') =>
+    $.classic.SessionStart({ source, transcript_path: TRANSCRIPT })
+
+  test('a fresh start toasts how the previous session ended', async ($, on) => {
+    const toasts = engine(on, [], history)
+    await start($, 'startup')
+    expect(toasts).toEqual([greeting])
+  })
+
+  test('a resume, /clear or compaction is no fresh start', async ($, on) => {
+    const toasts = engine(on, [], history)
+    for (const source of ['resume', 'clear', 'compact'] as const) {
+      await start($, source)
+    }
+    expect(toasts).toEqual([])
+  })
+
+  test('a project with no earlier session is not greeted', async ($, on) => {
+    const toasts = engine(on, [], [historyLine('current', 'today', NOW)])
+    await start($, 'startup')
+    expect(toasts).toEqual([])
+  })
+
+  test('a session with no surface (claude -p) is not greeted', async ($, on) => {
+    const toasts = engine(on, [], history, null)
+    await start($, 'startup')
+    expect(toasts).toEqual([])
+  })
+
+  test('greeting on|off turns it off and on, kept in the mod store', async ($, on) => {
+    const toasts = engine(on, [], history)
+    const command = async (args: string) =>
+      (
+        await $.command.run({
+          command: 'where-were-we', args, origin: { kind: 'composer' },
+          presentation: { isFullscreen: true, columns: 120 },
+        })
+      ).text
+
+    expect(await command('greeting')).toBe('The startup greeting is on. Change it with /where-were-we greeting on|off.')
+    expect(await command('greeting off')).toBe('The startup greeting is off.')
+    await start($, 'startup')
+    expect(toasts).toEqual([])
+
+    expect(await command('greeting maybe')).toBe('The greeting is on or off.')
+    expect(await command('greeting on')).toBe('The startup greeting is on.')
+    await start($, 'startup')
+    expect(toasts).toEqual([greeting])
+  })
 })

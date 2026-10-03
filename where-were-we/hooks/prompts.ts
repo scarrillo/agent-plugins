@@ -236,3 +236,29 @@ export function previousSession(lines: readonly string[], project: string, curre
 
   return latest
 }
+
+/** `today 18:04`, `yesterday 18:04`, or `2026-09-28 18:04`, in local time. */
+export function describeWhen(at: number, now: number): string {
+  const time = fullStamp(at).slice(11, 16)
+  const sent = new Date(at)
+  const today = new Date(now)
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  if (isSameDay(sent, today)) {
+    return `today ${time}`
+  }
+  if (isSameDay(sent, yesterday)) {
+    return `yesterday ${time}`
+  }
+
+  return fullStamp(at).slice(0, 16)
+}
+
+/** The startup greeting: when the project's last session ended and its final prompt. */
+export function greetingText(past: PastSession, now: number): string | null {
+  const last = past.prompts.at(-1)
+  if (last === undefined) {
+    return null
+  }
+
+  return `Last here ${describeWhen(last.at, now)}: “${truncate(last.preview, LISTED_LIMIT)}” · /where-were-we last`
+}
