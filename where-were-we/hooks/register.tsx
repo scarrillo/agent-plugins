@@ -395,14 +395,7 @@ export const register: Register = on => {
       return engine
     }
     const at = await read($, cursor)
-    const index = at ?? list.length - 1
-    const target = list[index]
-    if (target === undefined) {
-      return engine
-    }
     const { Box, Button, Text } = $.ui.resolve(e)
-    const label = formatStamp(target.at, await $.clock.now())
-    const position = at === null ? 'last' : `${index + 1}/${list.length}`
 
     return (
       <Box flexDirection="row">
@@ -411,10 +404,7 @@ export const register: Register = on => {
           <Button key="older" plain label={'↑'} dimColor onPress={() => jump($, 'older')} />
           <Text> </Text>
           <Button key="newer" plain label={'↓'} dimColor onPress={() => jump($, 'newer')} />
-          <Text dimColor>
-            {' '}
-            {position} {label}
-          </Text>
+          {at !== null && <Text dimColor> {`${at + 1}/${list.length}`}</Text>}
         </Box>
       </Box>
     )

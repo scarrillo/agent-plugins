@@ -204,22 +204,25 @@ test('the footer arrows and /where-were-we step through the prompts', async ($, 
 
   const idle = await $.ui.mount({ plugin: 'where-were-we', surface: 'terminal', component: 'PromptHint', props: hint })
   expect(await idle.find({ type: 'Text', text: 'ENGINE' })).toBeDefined()
-  expect(await idle.find({ type: 'Text', text: /last 12:23:00/ })).toBeDefined()
+  // Idle: the arrows alone, no position and no time.
+  expect(await idle.find({ type: 'Button', key: 'older' })).toBeDefined()
+  expect(await idle.find({ type: 'Text', text: /\d\/\d|\d\d:\d\d/ })).toBeUndefined()
   await idle.unmount()
 
+  const position = (n: number) => new RegExp(`^\\s*${n}/3$`)
   for (const surface of ['terminal', 'desktop'] as const) {
     await command('newest')
     const footer = await $.ui.mount({ plugin: 'where-were-we', surface, component: 'PromptHint', props: hint })
-    expect(await footer.find({ type: 'Text', text: /3\/3 12:23:00/ })).toBeDefined()
+    expect(await footer.find({ type: 'Text', text: position(3) })).toBeDefined()
     await footer.press({ key: 'older' })
     await footer.press({ key: 'older' })
-    expect(await footer.find({ type: 'Text', text: /1\/3 12:21:00/ })).toBeDefined()
+    expect(await footer.find({ type: 'Text', text: position(1) })).toBeDefined()
     await footer.press({ key: 'older' })
-    expect(await footer.find({ type: 'Text', text: /1\/3 12:21:00/ })).toBeDefined()
+    expect(await footer.find({ type: 'Text', text: position(1) })).toBeDefined()
     await footer.press({ key: 'newer' })
-    expect(await footer.find({ type: 'Text', text: /2\/3 12:22:00/ })).toBeDefined()
+    expect(await footer.find({ type: 'Text', text: position(2) })).toBeDefined()
     await command('up')
-    expect(await footer.find({ type: 'Text', text: /1\/3 12:21:00/ })).toBeDefined()
+    expect(await footer.find({ type: 'Text', text: position(1) })).toBeDefined()
     await footer.unmount()
   }
 })
@@ -249,7 +252,7 @@ test('the bare command lists recent prompts newest last, each line jumping to it
     await listing.unmount()
 
     const footer = await $.ui.mount({ plugin: 'where-were-we', surface, component: 'PromptHint', props: hint })
-    expect(await footer.find({ type: 'Text', text: /2\/3 12:22:00/ })).toBeDefined()
+    expect(await footer.find({ type: 'Text', text: /^\s*2\/3$/ })).toBeDefined()
     await footer.unmount()
   }
 

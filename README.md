@@ -39,7 +39,7 @@ The engine writes the API's type declarations into `.claude-plugin/types/` (git-
 Timestamps your prompts in the transcript and lets you jump back through them.
 
 - **Prompt rows** show when you sent them: `12:21:00 ❯ my prompt` for today, `2026-10-02 18:04:11 ❯ …` for older prompts. Wrapped lines stay aligned under the prompt text.
-- **Footer**: `↑ ↓ last 12:21:00` at the end of the hint line under the prompt. ↑ and ↓ step through your prompts; while navigating the label shows the position (`2/7 12:19:44`). Sending a prompt resets it.
+- **Footer**: `↑ ↓` at the end of the hint line under the prompt. ↑ and ↓ step through your prompts; while navigating it shows your position (`↑ ↓ 2/7`). Sending a prompt resets it.
 - **`/where-were-we`** lists your 6 most recent prompts, newest at the bottom; click a line to jump to that prompt.
 - **`/where-were-we count [n]`** shows or sets how many prompts the list shows (1–50).
 - **`/where-were-we order [chron|reverse]`** shows or sets the list order: `chron` puts the newest last (the default), `reverse` puts it first.
