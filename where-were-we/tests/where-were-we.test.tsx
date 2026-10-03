@@ -155,10 +155,10 @@ const promptLine = (uuid: string, minute: number) =>
  * transcript holding `lines`, logs, toasts and the engine's own rows. A
  * transcript row's scroll has no stub point in the kit, so jumps toast there.
  */
-function engine(on: On, lines: string[], history: string[] = [], surface: 'terminal' | null = 'terminal') {
+function engine(on: On, lines: string[], history: string[] = []) {
   /** The texts of the toasts shown, in order. */
   const toasts: string[] = []
-  mock.clock(on, { now: NOW })
+  const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   on('process.run', ($, e) => {
     const file = e.argv[0] === 'grep' ? e.argv.at(-1) : undefined
@@ -175,7 +175,9 @@ function engine(on: On, lines: string[], history: string[] = [], surface: 'termi
   on('classic.SessionStart', () => ({}))
   on('session.id', () => ({ value: 'current' }))
   on('session.cwd', () => ({ value: PROJECT }))
-  on('session.surface', () => ({ value: surface }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('fs.exists', ($, e) => ({ value: e.path === TRANSCRIPT }))
   on('ui.log', () => ({ value: undefined }))
   on('ui.toast', ($, e) => {
     toasts.push(e.text)
@@ -186,7 +188,7 @@ function engine(on: On, lines: string[], history: string[] = [], surface: 'termi
     return <Text>ENGINE</Text>
   })
 
-  return toasts
+  return { toasts, clock }
 }
 
 const startSession = ($: Engine) =>
@@ -378,35 +380,63 @@ describe('startup greeting', () => {
   const greeting = 'Last here yesterday 18:04: “run the tests” · /where-were-we last'
   const start = ($: Engine, source: 'startup' | 'resume' | 'clear' | 'compact') =>
     $.classic.SessionStart({ source, transcript_path: TRANSCRIPT })
+  /** The mod's own session-ready event: a REPL by default, `claude -p` with `drawn` false. */
+  const ready = ($: Engine, drawn = true) =>
+    $.session.start({ cwd: PROJECT, surface: drawn ? 'terminal' : null, isInteractive: drawn })
+  const DELAY = 1_500
 
-  test('a fresh start toasts how the previous session ended', async ($, on) => {
-    const toasts = engine(on, [], history)
+  test('a fresh start toasts how the previous session ended, once the session is ready', async ($, on) => {
+    const { toasts, clock } = engine(on, [], history)
+    // As Claude Code orders them: the fresh start comes before anything draws.
     await start($, 'startup')
+    expect(toasts).toEqual([])
+    await ready($)
+    await clock.advance(DELAY - 1)
+    expect(toasts).toEqual([])
+    await clock.advance(1)
+    expect(toasts).toEqual([greeting])
+  })
+
+  test('the other order greets too, and only once', async ($, on) => {
+    const { toasts, clock } = engine(on, [], history)
+    await ready($)
+    await start($, 'startup')
+    await clock.advance(DELAY)
+    expect(toasts).toEqual([greeting])
+    // A hot reload raises session.start again, with no fresh start.
+    await ready($)
+    await clock.advance(DELAY)
     expect(toasts).toEqual([greeting])
   })
 
   test('a resume, /clear or compaction is no fresh start', async ($, on) => {
-    const toasts = engine(on, [], history)
+    const { toasts, clock } = engine(on, [], history)
     for (const source of ['resume', 'clear', 'compact'] as const) {
       await start($, source)
     }
+    await ready($)
+    await clock.advance(DELAY)
     expect(toasts).toEqual([])
   })
 
   test('a project with no earlier session is not greeted', async ($, on) => {
-    const toasts = engine(on, [], [historyLine('current', 'today', NOW)])
+    const { toasts, clock } = engine(on, [], [historyLine('current', 'today', NOW)])
     await start($, 'startup')
+    await ready($)
+    await clock.advance(DELAY)
     expect(toasts).toEqual([])
   })
 
-  test('a session with no surface (claude -p) is not greeted', async ($, on) => {
-    const toasts = engine(on, [], history, null)
+  test('a session nothing draws (claude -p) is not greeted', async ($, on) => {
+    const { toasts, clock } = engine(on, [], history)
     await start($, 'startup')
+    await ready($, false)
+    await clock.advance(DELAY)
     expect(toasts).toEqual([])
   })
 
   test('greeting on|off turns it off and on, kept in the mod store', async ($, on) => {
-    const toasts = engine(on, [], history)
+    const { toasts, clock } = engine(on, [], history)
     const command = async (args: string) =>
       (
         await $.command.run({
@@ -417,12 +447,15 @@ describe('startup greeting', () => {
 
     expect(await command('greeting')).toBe('The startup greeting is on. Change it with /where-were-we greeting on|off.')
     expect(await command('greeting off')).toBe('The startup greeting is off.')
+    await ready($)
     await start($, 'startup')
+    await clock.advance(DELAY)
     expect(toasts).toEqual([])
 
     expect(await command('greeting maybe')).toBe('The greeting is on or off.')
     expect(await command('greeting on')).toBe('The startup greeting is on.')
     await start($, 'startup')
+    await clock.advance(DELAY)
     expect(toasts).toEqual([greeting])
   })
 })

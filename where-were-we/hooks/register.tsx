@@ -24,6 +24,8 @@ const COMMAND = 'where-were-we'
 /** How many prompts the bare command lists until `/where-were-we count` sets it. */
 const LISTED_DEFAULT = 6
 const LISTED_MAX = 50
+/** How long after the session is ready the startup greeting waits. */
+const GREETING_DELAY_MS = 1_500
 /** `chron` lists the newest prompt last (nearest the prompt), `reverse` first. */
 const ORDERS = ['chron', 'reverse'] as const
 type Order = (typeof ORDERS)[number]
@@ -72,6 +74,11 @@ async function remember($: EngineInterface, found: readonly Prompt[]) {
  */
 async function backfill($: EngineInterface, path: string, why: string) {
   if (path === '') {
+    return
+  }
+  // A brand-new session has no transcript file until its first row.
+  if (!(await $.fs.exists(path))) {
+    debug($, `backfill (${why}): no transcript yet`)
     return
   }
   const argv = ['grep', '-F', ...TRANSCRIPT_MARKERS.flatMap(marker => ['-e', marker]), '--', path]
@@ -169,22 +176,55 @@ async function isGreetingOn($: EngineInterface) {
 
 /**
  * Shows, as a toast, when this project's previous session ended and its last
- * prompt. Only at a fresh start where something draws, and never in the way
- * of the session starting: any failure is logged and dropped.
+ * prompt. Never in the way of the session starting: every skip is logged and
+ * any failure is logged and dropped.
  */
 async function greet($: EngineInterface) {
   try {
-    if (!(await isGreetingOn($)) || (await $.session.surface()) === null) {
+    if (!(await isGreetingOn($))) {
+      debug($, 'greeting: turned off, skipped')
       return
     }
     const found = await findPreviousSession($, 'greeting')
-    const text = 'past' in found && found.past !== null ? greetingText(found.past, await $.clock.now()) : null
-    if (text !== null) {
-      $.ui.toast(text, { timeoutMs: 8_000 })
+    if ('problem' in found) {
+      debug($, `greeting: skipped, ${found.problem}`)
+      return
     }
+    const text = found.past === null ? null : greetingText(found.past, await $.clock.now())
+    if (text === null) {
+      debug($, 'greeting: nothing to recap, skipped')
+      return
+    }
+    $.ui.toast(text, { timeoutMs: 8_000 })
+    debug($, 'greeting: shown')
   } catch (error) {
     debug($, `greeting failed: ${String(error)}`)
   }
+}
+
+/**
+ * The greeting needs two events, in either order: a fresh start (classic
+ * SessionStart, `startup`), which fires before anything draws, and
+ * session.start, which says whether something draws. A reload fires only
+ * session.start, and starts this module over, so it never greets.
+ */
+const startup: { isGreetingPending: boolean; ready: { isDrawn: boolean } | null } = {
+  isGreetingPending: false,
+  ready: null,
+}
+
+/** Greets once both startup events have come; called by each. */
+function greetWhenReady($: EngineInterface) {
+  if (!startup.isGreetingPending || startup.ready === null) {
+    return
+  }
+  startup.isGreetingPending = false
+  if (!startup.ready.isDrawn) {
+    debug($, 'greeting: nothing draws (claude -p or SDK), skipped')
+    return
+  }
+  // A moment for the screen to come up, so the toast isn't drawn under it.
+  $.clock.after(GREETING_DELAY_MS, () => void greet($))
 }
 
 /**
@@ -251,6 +291,8 @@ export const register: Register = on => {
       immediate: true,
     })
     debug($, `loaded; utc offset ${-new Date().getTimezoneOffset()} min`)
+    startup.ready = { isDrawn: e.isInteractive && e.surface !== null }
+    greetWhenReady($)
 
     return next(e)
   })
@@ -260,7 +302,8 @@ export const register: Register = on => {
     await backfill($, e.transcript_path, `session ${e.source}`)
     // Only a fresh start: a resume, /clear, compaction or reload is no return.
     if (e.source === 'startup') {
-      await greet($)
+      startup.isGreetingPending = true
+      greetWhenReady($)
     }
 
     return next(e)
