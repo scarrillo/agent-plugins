@@ -77,34 +77,6 @@ Ask for it in plain words ("review PR #12", "respond to the review comments") or
 | [pr-review-cycle](pr-review-cycle/) | Skill | asks about a PR, or `/pr-review-cycle:pr-review-cycle`<br>(`/pr-review-cycle` via skills.sh, `$pr-review-cycle` in Codex) | Claude Code, Codex, any skills agent | this repo |
 | [release](https://github.com/scarrillo/release) | Claude Code plugin | `/release:release`, `/release:changelog`, … | Claude Code | [scarrillo/release](https://github.com/scarrillo/release) |
 
-## Developing a mod
-
-Each mod is its own folder with a `.claude-plugin/plugin.json`. Load one from disk for a session:
-
-```sh
-claude --plugin-dir ~/path/to/agent-plugins/where-were-we
-```
-
-Repeat `--plugin-dir` for several mods. To load them in every session, list them in the `env` block of `~/.claude/settings.json`, separated by `:`:
-
-```json
-"env": {
-  "CLAUDE_CODE_PLUGIN_DIRS": "~/path/to/agent-plugins/where-were-we"
-}
-```
-
-An interactive session watches these folders: saving a file reloads the mod. Don't load the same mod from two places at once, for example from disk and installed from the marketplace.
-
-Inside a mod folder:
-
-```sh
-claude plugin validate .   # what the engine sees and would refuse
-claude plugin test .       # runs tests/*.test.ts(x)
-npx tsc -p .               # type-check
-```
-
-The engine writes the API's type declarations into `.claude-plugin/types/` (git-ignored) each time it loads a mod, so type-checking works once the mod has loaded at least once.
-
 ## License
 
 [MIT](LICENSE)
