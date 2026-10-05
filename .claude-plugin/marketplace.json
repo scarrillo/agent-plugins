@@ -16,8 +16,8 @@
         "name": "Shawn Carrillo",
         "email": "release@shawn.co"
       },
-      "homepage": "https://github.com/scarrillo/agents-plugins/tree/main/where-were-we",
-      "repository": "https://github.com/scarrillo/agents-plugins",
+      "homepage": "https://github.com/scarrillo/agent-plugins/tree/main/where-were-we",
+      "repository": "https://github.com/scarrillo/agent-plugins",
       "license": "MIT",
       "keywords": [
         "mod",
@@ -39,8 +39,8 @@
         "name": "Shawn Carrillo",
         "email": "release@shawn.co"
       },
-      "homepage": "https://github.com/scarrillo/agents-plugins/tree/main/pr-review-cycle",
-      "repository": "https://github.com/scarrillo/agents-plugins",
+      "homepage": "https://github.com/scarrillo/agent-plugins/tree/main/pr-review-cycle",
+      "repository": "https://github.com/scarrillo/agent-plugins",
       "license": "MIT",
       "keywords": [
         "skill",

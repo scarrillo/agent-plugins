@@ -1,4 +1,4 @@
-# agents-plugins
+# agent-plugins
 
 Shawn Carrillo's plugins for [Claude Code](https://claude.com/claude-code), published as the `scarrillo` plugin marketplace.
 
@@ -7,13 +7,13 @@ Shawn Carrillo's plugins for [Claude Code](https://claude.com/claude-code), publ
 Add the marketplace once, then install the plugins you want:
 
 ```
-/plugin marketplace add scarrillo/agents-plugins
+/plugin marketplace add scarrillo/agent-plugins
 /plugin install where-were-we@scarrillo
 /plugin install pr-review-cycle@scarrillo
 /plugin install release@scarrillo
 ```
 
-`pr-review-cycle` is also a plain cross-agent skill, so other agents can install it with `npx skills add scarrillo/agents-plugins --skill pr-review-cycle`.
+`pr-review-cycle` is also a plain cross-agent skill, so other agents can install it with `npx skills add scarrillo/agent-plugins --skill pr-review-cycle`.
 
 ## Plugins
 
@@ -28,14 +28,14 @@ Add the marketplace once, then install the plugins you want:
 Each mod is its own folder with a `.claude-plugin/plugin.json`. Load one from disk for a session:
 
 ```sh
-claude --plugin-dir ~/path/to/agents-plugins/where-were-we
+claude --plugin-dir ~/path/to/agent-plugins/where-were-we
 ```
 
 Repeat `--plugin-dir` for several mods. To load them in every session, list them in the `env` block of `~/.claude/settings.json`, separated by `:`:
 
 ```json
 "env": {
-  "CLAUDE_CODE_PLUGIN_DIRS": "~/path/to/agents-plugins/where-were-we"
+  "CLAUDE_CODE_PLUGIN_DIRS": "~/path/to/agent-plugins/where-were-we"
 }
 ```
 

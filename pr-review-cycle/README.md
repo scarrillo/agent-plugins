@@ -11,7 +11,7 @@ watches for new reviewer activity and re-enters the cycle.
 **Claude Code**, from the [scarrillo marketplace](../README.md):
 
 ```bash
-/plugin marketplace add scarrillo/agents-plugins
+/plugin marketplace add scarrillo/agent-plugins
 /plugin install pr-review-cycle@scarrillo
 ```
 
@@ -19,7 +19,7 @@ watches for new reviewer activity and re-enters the cycle.
 [skills.sh](https://skills.sh):
 
 ```bash
-npx skills add scarrillo/agents-plugins --skill pr-review-cycle
+npx skills add scarrillo/agent-plugins --skill pr-review-cycle
 ```
 
 `-g` installs globally (user-level, e.g. `~/.agents/skills/`,

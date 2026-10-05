@@ -5,7 +5,7 @@ A [Claude Code](https://claude.com/claude-code) mod that timestamps your prompts
 ## Install
 
 ```
-/plugin marketplace add scarrillo/agents-plugins
+/plugin marketplace add scarrillo/agent-plugins
 /plugin install where-were-we@scarrillo
 ```
 
