@@ -5,7 +5,7 @@
     "email": "release@shawn.co"
   },
   "metadata": {
-    "description": "Shawn Carrillo's Claude Code plugins: release automation and where-were-we prompt navigation"
+    "description": "Shawn Carrillo's Claude Code plugins: where-were-we prompt navigation, the pr-review-cycle skill, and release automation"
   },
   "plugins": [
     {
@@ -19,8 +19,42 @@
       "homepage": "https://github.com/scarrillo/agents-plugins/tree/main/where-were-we",
       "repository": "https://github.com/scarrillo/agents-plugins",
       "license": "MIT",
-      "keywords": ["mod", "timestamps", "prompts", "navigation", "history", "resume", "session", "productivity"],
+      "keywords": [
+        "mod",
+        "timestamps",
+        "prompts",
+        "navigation",
+        "history",
+        "resume",
+        "session",
+        "productivity"
+      ],
       "category": "productivity"
+    },
+    {
+      "name": "pr-review-cycle",
+      "source": "./pr-review-cycle",
+      "description": "Drive the full GitHub PR review → resolve → watch loop: summarize the PR, prioritize feedback, resolve threads, then watch for new reviewer activity",
+      "author": {
+        "name": "Shawn Carrillo",
+        "email": "release@shawn.co"
+      },
+      "homepage": "https://github.com/scarrillo/agents-plugins/tree/main/pr-review-cycle",
+      "repository": "https://github.com/scarrillo/agents-plugins",
+      "license": "MIT",
+      "keywords": [
+        "skill",
+        "github",
+        "pull-request",
+        "code-review",
+        "review",
+        "pr"
+      ],
+      "category": "productivity",
+      "strict": false,
+      "skills": [
+        "./"
+      ]
     },
     {
       "name": "release",

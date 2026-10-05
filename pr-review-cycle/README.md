@@ -1,33 +1,45 @@
-# agent-skills
+# pr-review-cycle
 
-Cross-agent skills built to the [agentskills.io](https://agentskills.io)
-spec, distributed via [skills.sh](https://skills.sh).
-
-## Skills
-
-| Skill | What it does |
-| --- | --- |
-| [`pr-review-cycle`](skills/pr-review-cycle/SKILL.md) | Drive the full GitHub PR review → resolve → watch loop: preflight context, summarize changes, surface review conversations, prioritize open feedback, commit and reply to resolve threads, then watch for new reviewer activity and re-enter the cycle. |
+A cross-agent skill built to the [agentskills.io](https://agentskills.io)
+spec: drive the full GitHub PR review → resolve → watch loop. It
+preflights context, summarizes changes, surfaces review conversations,
+prioritizes open feedback, commits and replies to resolve threads, then
+watches for new reviewer activity and re-enters the cycle.
 
 ## Install
 
-Install the whole pack into your active agent(s):
+**Claude Code**, from the [scarrillo marketplace](../README.md):
 
 ```bash
-npx skills add scarrillo/agent-skills
+/plugin marketplace add scarrillo/agents-plugins
+/plugin install pr-review-cycle@scarrillo
 ```
 
-Or install a single skill:
+**Any agent** (Claude Code, Codex, Cursor and others), via
+[skills.sh](https://skills.sh):
 
 ```bash
-npx skills add scarrillo/agent-skills --skill pr-review-cycle
+npx skills add scarrillo/agents-plugins --skill pr-review-cycle
 ```
 
-`-g` installs globally (user-level, e.g. `~/.claude/skills/`,
-`~/.cursor/skills/`); without it, install is project-local
+`-g` installs globally (user-level, e.g. `~/.agents/skills/`,
+`~/.claude/skills/`); without it, install is project-local
 (e.g. `.claude/skills/`, `.agents/skills/`). See the [skills CLI
 docs](https://github.com/vercel-labs/skills#readme) for agent
 targeting and source formats.
+
+Install it one way or the other, not both, or Claude Code loads the
+skill twice.
+
+## Invoking it
+
+It triggers on its own when you ask about a PR ("review PR #12",
+"respond to the review comments"). To call it by name:
+
+| Agent | Installed as a skill | Installed as a plugin |
+| --- | --- | --- |
+| Claude Code | `/pr-review-cycle` | `/pr-review-cycle:pr-review-cycle` |
+| Codex | `$pr-review-cycle` in your prompt | — |
 
 ## Prerequisites
 
@@ -100,7 +112,7 @@ Review priorities are layered, so each project keeps its own
 guardrails without forking the skill:
 
 1. **Built-in defaults** (always loaded) —
-   `skills/pr-review-cycle/rules/default-review-rules.md`. Ships
+   `rules/default-review-rules.md`. Ships
    with the skill: Security, Performance, Error handling,
    Accessibility & platform conventions, Behavioral regressions.
 2. **Project override** (optional) —
@@ -138,21 +150,24 @@ when the rule set reflects shared engineering standards; gitignore
 when it's a personal customization for one reviewer.
 
 A copy-and-edit reference lives at
-[`skills/pr-review-cycle/rules/example-review-cycle-rules.md`](skills/pr-review-cycle/rules/example-review-cycle-rules.md).
+[`rules/example-review-cycle-rules.md`](rules/example-review-cycle-rules.md).
 
 ## Layout
 
 ```
-skills/
-└── pr-review-cycle/
-    ├── SKILL.md
-    ├── rules/
-    │   ├── default-review-rules.md
-    │   └── example-review-cycle-rules.md
-    └── scripts/
-        └── pr-watch.sh
+pr-review-cycle/
+├── SKILL.md
+├── README.md
+├── rules/
+│   ├── default-review-rules.md
+│   └── example-review-cycle-rules.md
+└── scripts/
+    └── pr-watch.sh
 ```
 
-Each skill is a self-contained directory; bundled scripts and
+The skill is a self-contained directory; the bundled script and
 rule files live alongside `SKILL.md` and are referenced relative
-to it.
+to it, so they travel with every install. In the Claude Code
+marketplace it's packaged as a plugin by its entry in
+[`../.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json);
+the folder itself has nothing Claude-specific.

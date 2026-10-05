@@ -9,14 +9,18 @@ Add the marketplace once, then install the plugins you want:
 ```
 /plugin marketplace add scarrillo/agents-plugins
 /plugin install where-were-we@scarrillo
+/plugin install pr-review-cycle@scarrillo
 /plugin install release@scarrillo
 ```
+
+`pr-review-cycle` is also a plain cross-agent skill, so other agents can install it with `npx skills add scarrillo/agents-plugins --skill pr-review-cycle`.
 
 ## Plugins
 
 | Plugin | What it does | Source |
 | --- | --- | --- |
 | [where-were-we](where-were-we/) | Timestamps your prompts in the transcript, adds up/down prompt navigation to the footer, and recaps where your last session in a project left off. A mod built on Claude Code's function-hooks API. | this repo |
+| [pr-review-cycle](pr-review-cycle/) | Drives the full GitHub PR review → resolve → watch loop: summarizes the PR, prioritizes feedback, resolves threads, then watches for new reviewer activity. A plain [agentskills.io](https://agentskills.io) skill that also works in Codex and other agents. | this repo |
 | [release](https://github.com/scarrillo/release) | Release automation: semantic versioning, changelogs, decisions tracking and TestFlight integration. | [scarrillo/release](https://github.com/scarrillo/release) |
 
 ## Developing a mod
