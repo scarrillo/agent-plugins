@@ -282,7 +282,8 @@ test('the bare command lists recent prompts newest last, each line jumping to it
       plugin: 'where-were-we', surface, component: 'CommandOutput',
       props: { command: 'where-were-we', args: '', text, isErrored: false },
     })
-    expect(await listing.find({ type: 'Button', text: '12:21:00  prompt p1' })).toBeDefined()
+    // The date shows even for today's prompts.
+    expect(await listing.find({ type: 'Button', text: '2026-10-03 12:21:00  prompt p1' })).toBeDefined()
     await listing.press({ key: 'prompt-1' })
     await listing.unmount()
 

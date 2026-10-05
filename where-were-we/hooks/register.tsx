@@ -440,7 +440,6 @@ export const register: Register = on => {
       return next(e)
     }
     const list = await read($, prompts)
-    const now = await $.clock.now()
     const width = Math.max((e.viewport?.columns ?? 80) - 4, 20)
     const { Box, Button, Text } = $.ui.resolve(e)
 
@@ -451,7 +450,7 @@ export const register: Register = on => {
           if (target === undefined) {
             return <Text dimColor>{truncate(`${line.stamp}  ${line.preview}`, width)}</Text>
           }
-          const label = truncate(`${formatStamp(target.at, now)}  ${target.preview}`, width)
+          const label = truncate(`${fullStamp(target.at)}  ${target.preview}`, width)
           const { uuid } = target
           return <Button key={`prompt-${index}`} plain label={label} onPress={() => jumpTo($, uuid)} />
         })}
