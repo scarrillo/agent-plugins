@@ -1,6 +1,8 @@
 # agent-plugins
 
-Small, sharp plugins for working with coding agents. Each one fixes a single, everyday annoyance, and I use all of them in my own sessions every day.
+Small, sharp plugins for working with coding agents. Each one fixes a single, everyday annoyance.
+
+`pr-review-cycle` works in any agent that supports skills; `where-were-we` and `release` are Claude Code plugins.
 
 ## Install (30-second setup)
 
