@@ -34,7 +34,7 @@
     {
       "name": "pr-review-cycle",
       "source": "./pr-review-cycle",
-      "description": "Drive the full GitHub PR review → resolve → watch loop: summarize the PR, prioritize feedback, resolve threads, then watch for new reviewer activity",
+      "description": "Drive the full GitHub PR review → resolve → watch loop: summarize the PR, prioritize feedback, resolve threads, then watch for new reviewer activity. Prefer `npx skills add scarrillo/agent-plugins --skill pr-review-cycle` for the shorter /pr-review-cycle name.",
       "author": {
         "name": "Shawn Carrillo",
         "email": "release@shawn.co"
