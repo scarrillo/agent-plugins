@@ -1,0 +1,36 @@
+{
+  "name": "scarrillo",
+  "owner": {
+    "name": "Shawn Carrillo",
+    "email": "release@shawn.co"
+  },
+  "metadata": {
+    "description": "Shawn Carrillo's Claude Code plugins: release automation and where-were-we prompt navigation"
+  },
+  "plugins": [
+    {
+      "name": "where-were-we",
+      "source": "./where-were-we",
+      "description": "Timestamps your prompts in the transcript, adds up/down prompt navigation to the footer, and recaps where your last session left off",
+      "author": {
+        "name": "Shawn Carrillo",
+        "email": "release@shawn.co"
+      },
+      "homepage": "https://github.com/scarrillo/agents-plugins/tree/main/where-were-we",
+      "repository": "https://github.com/scarrillo/agents-plugins",
+      "license": "MIT",
+      "keywords": ["mod", "timestamps", "prompts", "navigation", "history", "resume", "session", "productivity"],
+      "category": "productivity"
+    },
+    {
+      "name": "release",
+      "source": {
+        "source": "github",
+        "repo": "scarrillo/release"
+      },
+      "description": "Release automation toolkit - semantic versioning, changelogs, decisions tracking, and TestFlight integration",
+      "homepage": "https://github.com/scarrillo/release",
+      "category": "productivity"
+    }
+  ]
+}

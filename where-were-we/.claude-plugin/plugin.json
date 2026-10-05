@@ -2,5 +2,22 @@
   "name": "where-were-we",
   "version": "0.1.0",
   "description": "Timestamps your prompts in the transcript and adds up/down prompt navigation to the footer",
+  "author": {
+    "name": "Shawn Carrillo",
+    "email": "release@shawn.co"
+  },
+  "homepage": "https://github.com/scarrillo/agents-plugins/tree/main/where-were-we",
+  "repository": "https://github.com/scarrillo/agents-plugins",
+  "license": "MIT",
+  "keywords": [
+    "mod",
+    "timestamps",
+    "prompts",
+    "navigation",
+    "history",
+    "resume",
+    "session",
+    "productivity"
+  ],
   "types": "./types/index.d.ts"
 }
