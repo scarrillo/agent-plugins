@@ -31,7 +31,7 @@ Update a plugin later with `claude plugin update <plugin>@scarrillo`.
 npx skills add scarrillo/agent-plugins --skill pr-review-cycle
 ```
 
-This copies the skill into your agent's skills folder as ordinary files you can edit. Update it with `npx skills update`.
+This installs the skill as ordinary files you can edit, in a shared skills folder (such as `~/.agents/skills/`) that each agent links to. Add `--copy` for an independent copy per agent. Update it with `npx skills update`.
 
 </details>
 
@@ -57,7 +57,7 @@ Pick one route per plugin. Installing `pr-review-cycle` both ways gives Claude C
 
 - Summarizes the PR and every open conversation, then prioritizes the feedback.
 - Resolves threads with you: commits, pushes and replies, each only after you approve.
-- Watches the PR in the background and pings you when new review activity lands (live in Claude Code), then loops back through the cycle.
+- Watches the PR in the background and pings you when new review activity lands (live in Claude Code), then offers to run the cycle again.
 
 Ask for it in plain words ("review PR #12", "respond to the review comments") or call it by name.
 

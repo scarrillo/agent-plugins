@@ -4,7 +4,7 @@ A cross-agent skill built to the [agentskills.io](https://agentskills.io)
 spec: drive the full GitHub PR review → resolve → watch loop. It
 preflights context, summarizes changes, surfaces review conversations,
 prioritizes open feedback, commits and replies to resolve threads, then
-watches for new reviewer activity and re-enters the cycle.
+watches for new reviewer activity and offers to run the cycle again.
 
 ## Install
 
