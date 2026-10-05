@@ -6,36 +6,27 @@ Small, sharp plugins for working with coding agents. Each one fixes a single, ev
 
 ## Install (30-second setup)
 
-<details open>
-<summary><strong>Claude Code</strong></summary>
+### Plugins (Claude Code)
 
-Add the marketplace once, then install what you want:
+Add the marketplace once, then install the plugins:
 
 ```
 /plugin marketplace add scarrillo/agent-plugins
 /plugin install where-were-we@scarrillo
-/plugin install pr-review-cycle@scarrillo
 /plugin install release@scarrillo
 ```
 
 Update a plugin later with `claude plugin update <plugin>@scarrillo`.
 
-</details>
+### Skills (Claude Code, Codex, Cursor and other agents)
 
-<details>
-<summary><strong>Codex, Cursor and other agents</strong></summary>
-
-`pr-review-cycle` is a plain [agentskills.io](https://agentskills.io) skill, so any agent that supports skills can install it:
+Skills install with [skills.sh](https://skills.sh), the same way in every agent, Claude Code included:
 
 ```bash
-npx skills add scarrillo/agent-plugins --skill pr-review-cycle
+npx skills add scarrillo/agent-plugins --skill pr-review-cycle -g
 ```
 
-This installs the skill as ordinary files you can edit, in a shared skills folder (such as `~/.agents/skills/`) that each agent links to. Add `--copy` for an independent copy per agent. Update it with `npx skills update`.
-
-</details>
-
-Pick one route per plugin. Installing `pr-review-cycle` both ways gives Claude Code the skill twice.
+Choose the agents to install it for when prompted. This installs the skill as ordinary files you can edit, in a shared skills folder (such as `~/.agents/skills/`) that each agent links to; add `--copy` for an independent copy per agent. Leave out `-g` to install into the current project instead of for your user. Update it with `npx skills update`.
 
 ## What's here
 
@@ -76,7 +67,7 @@ Ask for it in plain words ("review PR #12", "respond to the review comments") or
 | Plugin | Kind | Call it with | Works in | Source |
 | --- | --- | --- | --- | --- |
 | [where-were-we](where-were-we/) | Claude Code mod | `/where-were-we`, footer `↑ ↓` | Claude Code | this repo |
-| [pr-review-cycle](pr-review-cycle/) | Skill | asks about a PR, or `/pr-review-cycle:pr-review-cycle`<br>(`/pr-review-cycle` via skills.sh, `$pr-review-cycle` in Codex) | Claude Code, Codex, any skills agent | this repo |
+| [pr-review-cycle](pr-review-cycle/) | Skill | asks about a PR, or `/pr-review-cycle` (Claude Code), `$pr-review-cycle` (Codex) | Claude Code, Codex, any skills agent | this repo |
 | [release](https://github.com/scarrillo/release) | Claude Code plugin | `/release:release`, `/release:changelog`, … | Claude Code | [scarrillo/release](https://github.com/scarrillo/release) |
 
 ## License
