@@ -52,15 +52,18 @@ Choose the agents to install it for when prompted. This installs the skill as or
 
 Ask for it in plain words ("review PR #12", "respond to the review comments") or call it by name.
 
-### Releases are tedious?
+### Shipping an iOS/macOS build is the same chore every time?
 
-**The problem:** bumping versions, tagging, writing changelogs and release notes is the same chore every time, and it's easy to get wrong.
+**The problem:** bump the version in your Xcode project, tag it, write the changelog and TestFlight notes, then build: a handful of manual steps, any of which is easy to get wrong.
 
-**The fix:** [`release`](https://github.com/scarrillo/release), a Claude Code plugin.
+**The fix:** [`release`](https://github.com/scarrillo/release), Xcode release automation for Claude Code.
 
 - `/release:release` bumps the version (SemVer), commits and tags in one step.
 - `/release:changelog` writes changelogs in a problem/solution format from your session's work, not from vague commit messages.
-- `/release:decisions` records the why behind choices, and `/release:whattotest` drafts TestFlight notes from the changelog.
+- `/release:whattotest` drafts TestFlight notes from the changelog, and `/release:xcbuild` builds the app.
+- `/release:decisions` records the why behind choices.
+
+It also releases Claude Code plugins, which is how it ships itself.
 
 ## Reference
 
@@ -68,7 +71,7 @@ Ask for it in plain words ("review PR #12", "respond to the review comments") or
 | --- | --- | --- | --- | --- |
 | [where-were-we](where-were-we/) | Claude Code mod | `/where-were-we`, footer `↑ ↓` | Claude Code | this repo |
 | [pr-review-cycle](pr-review-cycle/) | Skill | asks about a PR, or `/pr-review-cycle` (Claude Code), `$pr-review-cycle` (Codex) | Claude Code, Codex, any skills agent | this repo |
-| [release](https://github.com/scarrillo/release) | Claude Code plugin | `/release:release`, `/release:changelog`, … | Claude Code | [scarrillo/release](https://github.com/scarrillo/release) |
+| [release](https://github.com/scarrillo/release) | Claude Code plugin (Xcode release automation) | `/release:release`, `/release:changelog`, … | Claude Code | [scarrillo/release](https://github.com/scarrillo/release) |
 
 ## License
 
