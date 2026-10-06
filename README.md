@@ -60,7 +60,7 @@ Ask for it in plain words ("review PR #12", "respond to the review comments") or
 
 - `/release:release` bumps the version (SemVer), commits and tags in one step.
 - `/release:changelog` writes changelogs in a problem/solution format from your session's work, not from vague commit messages.
-- `/release:whattotest` drafts TestFlight notes from the changelog, and `/release:xcbuild` builds the app.
+- `/release:whattotest` drafts TestFlight notes from the changelog, and `/release:xcbuild` builds an iOS app for the Simulator.
 - `/release:decisions` records the why behind choices.
 
 It also releases Claude Code plugins, which is how it ships itself.
