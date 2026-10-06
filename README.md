@@ -1,55 +1,74 @@
 # agent-plugins
 
-Shawn Carrillo's plugins for [Claude Code](https://claude.com/claude-code), published as the `scarrillo` plugin marketplace.
+Small, sharp plugins for working with coding agents. Each one fixes a single, everyday annoyance.
 
-## Install
+`pr-review-cycle` works in any agent that supports skills; `where-were-we` and `release` are Claude Code plugins.
 
-Add the marketplace once, then install the plugins you want:
+## Install (30-second setup)
+
+### Plugins (Claude Code)
+
+Add the marketplace once, then install the plugins:
 
 ```
 /plugin marketplace add scarrillo/agent-plugins
 /plugin install where-were-we@scarrillo
-/plugin install pr-review-cycle@scarrillo
 /plugin install release@scarrillo
 ```
 
-`pr-review-cycle` is also a plain cross-agent skill, so other agents can install it with `npx skills add scarrillo/agent-plugins --skill pr-review-cycle`.
+Update a plugin later with `claude plugin update <plugin>@scarrillo`.
 
-## Plugins
+### Skills (Claude Code, Codex, Cursor and other agents)
 
-| Plugin | What it does | Source |
-| --- | --- | --- |
-| [where-were-we](where-were-we/) | Timestamps your prompts in the transcript, adds up/down prompt navigation to the footer, and recaps where your last session in a project left off. A mod built on Claude Code's function-hooks API. | this repo |
-| [pr-review-cycle](pr-review-cycle/) | Drives the full GitHub PR review → resolve → watch loop: summarizes the PR, prioritizes feedback, resolves threads, then watches for new reviewer activity. A plain [agentskills.io](https://agentskills.io) skill that also works in Codex and other agents. | this repo |
-| [release](https://github.com/scarrillo/release) | Release automation: semantic versioning, changelogs, decisions tracking and TestFlight integration. | [scarrillo/release](https://github.com/scarrillo/release) |
+Skills install with [skills.sh](https://skills.sh), the same way in every agent, Claude Code included:
 
-## Developing a mod
-
-Each mod is its own folder with a `.claude-plugin/plugin.json`. Load one from disk for a session:
-
-```sh
-claude --plugin-dir ~/path/to/agent-plugins/where-were-we
+```bash
+npx skills add scarrillo/agent-plugins --skill pr-review-cycle -g
 ```
 
-Repeat `--plugin-dir` for several mods. To load them in every session, list them in the `env` block of `~/.claude/settings.json`, separated by `:`:
+Choose the agents to install it for when prompted. This installs the skill as ordinary files you can edit, in a shared skills folder (such as `~/.agents/skills/`) that each agent links to; add `--copy` for an independent copy per agent. Leave out `-g` to install into the current project instead of for your user. Update it with `npx skills update`.
 
-```json
-"env": {
-  "CLAUDE_CODE_PLUGIN_DIRS": "~/path/to/agent-plugins/where-were-we"
-}
-```
+## What's here
 
-An interactive session watches these folders: saving a file reloads the mod. Don't load the same mod from two places at once, for example from disk and installed from the marketplace.
+### Lost your place in a long session?
 
-Inside a mod folder:
+**The problem:** a few hours into a session, the scrollback is a wall of output. You can't tell when you asked what, finding an earlier prompt means scrolling and squinting, and coming back the next day you've forgotten where you left off.
 
-```sh
-claude plugin validate .   # what the engine sees and would refuse
-claude plugin test .       # runs tests/*.test.ts(x)
-npx tsc -p .               # type-check
-```
+**The fix:** [`where-were-we`](where-were-we/), a Claude Code mod.
 
-The engine writes the API's type declarations into `.claude-plugin/types/` (git-ignored) each time it loads a mod, so type-checking works once the mod has loaded at least once.
+- Every prompt in the transcript gets a timestamp: `12:21:00 ❯ my prompt`.
+- `↑ ↓` in the footer jump between your prompts, and `/where-were-we` lists the recent ones; click one to jump to it (in the fullscreen layout).
+- Start a new session and a toast tells you how the last one ended: `Last here yesterday 18:04: "run the tests"`. `/where-were-we last` shows more, with the command to resume it.
+
+### Review feedback landing while you're away?
+
+**The problem:** you open a PR, reviewers and bots comment across three different GitHub streams, and you keep switching tabs to see whether anything new arrived, then stitch it together into what actually needs doing.
+
+**The fix:** [`pr-review-cycle`](pr-review-cycle/), a cross-agent skill.
+
+- Summarizes the PR and every open conversation, then prioritizes the feedback.
+- Resolves threads with you: commits, pushes and replies, each only after you approve.
+- Watches the PR in the background and pings you when new review activity lands (live in Claude Code), then offers to run the cycle again.
+
+Ask for it in plain words ("review PR #12", "respond to the review comments") or call it by name.
+
+### Releases are tedious?
+
+**The problem:** bumping versions, tagging, writing changelogs and release notes is the same chore every time, and it's easy to get wrong.
+
+**The fix:** [`release`](https://github.com/scarrillo/release), a Claude Code plugin.
+
+- `/release:release` bumps the version (SemVer), commits and tags in one step.
+- `/release:changelog` writes changelogs in a problem/solution format from your session's work, not from vague commit messages.
+- `/release:decisions` records the why behind choices, and `/release:whattotest` drafts TestFlight notes from the changelog.
+
+## Reference
+
+| Plugin | Kind | Call it with | Works in | Source |
+| --- | --- | --- | --- | --- |
+| [where-were-we](where-were-we/) | Claude Code mod | `/where-were-we`, footer `↑ ↓` | Claude Code | this repo |
+| [pr-review-cycle](pr-review-cycle/) | Skill | asks about a PR, or `/pr-review-cycle` (Claude Code), `$pr-review-cycle` (Codex) | Claude Code, Codex, any skills agent | this repo |
+| [release](https://github.com/scarrillo/release) | Claude Code plugin | `/release:release`, `/release:changelog`, … | Claude Code | [scarrillo/release](https://github.com/scarrillo/release) |
 
 ## License
 

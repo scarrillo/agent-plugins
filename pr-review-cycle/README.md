@@ -4,42 +4,33 @@ A cross-agent skill built to the [agentskills.io](https://agentskills.io)
 spec: drive the full GitHub PR review → resolve → watch loop. It
 preflights context, summarizes changes, surfaces review conversations,
 prioritizes open feedback, commits and replies to resolve threads, then
-watches for new reviewer activity and re-enters the cycle.
+watches for new reviewer activity and offers to run the cycle again.
 
 ## Install
 
-**Claude Code**, from the [scarrillo marketplace](../README.md):
+Install with [skills.sh](https://skills.sh), the same way in every agent
+(Claude Code, Codex, Cursor and others):
 
 ```bash
-/plugin marketplace add scarrillo/agent-plugins
-/plugin install pr-review-cycle@scarrillo
+npx skills add scarrillo/agent-plugins --skill pr-review-cycle -g
 ```
 
-**Any agent** (Claude Code, Codex, Cursor and others), via
-[skills.sh](https://skills.sh):
-
-```bash
-npx skills add scarrillo/agent-plugins --skill pr-review-cycle
-```
-
-`-g` installs globally (user-level, e.g. `~/.agents/skills/`,
-`~/.claude/skills/`); without it, install is project-local
-(e.g. `.claude/skills/`, `.agents/skills/`). See the [skills CLI
+Choose the agents to install it for when prompted. `-g` installs it for
+your user (in a shared folder such as `~/.agents/skills/`, linked into
+each agent); without it, the install is project-local (e.g.
+`.agents/skills/`, `.claude/skills/`). See the [skills CLI
 docs](https://github.com/vercel-labs/skills#readme) for agent
 targeting and source formats.
-
-Install it one way or the other, not both, or Claude Code loads the
-skill twice.
 
 ## Invoking it
 
 It triggers on its own when you ask about a PR ("review PR #12",
 "respond to the review comments"). To call it by name:
 
-| Agent | Installed as a skill | Installed as a plugin |
-| --- | --- | --- |
-| Claude Code | `/pr-review-cycle` | `/pr-review-cycle:pr-review-cycle` |
-| Codex | `$pr-review-cycle` in your prompt | — |
+| Agent | Call it with |
+| --- | --- |
+| Claude Code | `/pr-review-cycle` |
+| Codex | `$pr-review-cycle` in your prompt |
 
 ## Prerequisites
 
