@@ -1,6 +1,6 @@
 # where-were-we
 
-A Claude Code mod that timestamps your prompts and keeps a history of them.
+A Claude Code mod that timestamps your prompts and helps you find your way back through your prompt history.
 
 ## Install
 
