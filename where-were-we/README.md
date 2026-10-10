@@ -32,7 +32,7 @@ Requires Claude Code 2.1.288 or later. Mods use Claude Code's function-hooks API
 ## Data access
 
 - Reads this session's transcript, to recover prompt times.
-- Reads this project's entries in `~/.claude/history.jsonl`, prompt text only, never pasted content.
-- Keeps its settings in its own store under `~/.claude/`.
+- Reads this project's entries in Claude Code's `history.jsonl` (in `~/.claude/` by default, or `CLAUDE_CONFIG_DIR`), prompt text only, never pasted content.
+- Keeps its settings in its own store in the same configuration directory.
 
-No network access, and no changes to your files or `settings.json`.
+It doesn't access the network or change your project files or `settings.json`.

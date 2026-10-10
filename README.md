@@ -30,7 +30,7 @@ npx skills add scarrillo/agent-plugins --skill pr-review-cycle -g
 
 - Summarizes the PR and prioritizes open feedback.
 - Commits, pushes and replies to resolve threads, each after you approve.
-- Watches for new review activity and offers to run the cycle again.
+- Watches for new review activity (live in Claude Code; logged in other agents) and offers to run the cycle again.
 
 Ask about a PR, or call it with `/pr-review-cycle` (Claude Code) or `$pr-review-cycle` (Codex). [Docs](pr-review-cycle/)
 
