@@ -1,6 +1,6 @@
 {
   "name": "where-were-we",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Timestamps your prompts in the transcript and adds up/down prompt navigation to the footer",
   "author": {
     "name": "Shawn Carrillo",
