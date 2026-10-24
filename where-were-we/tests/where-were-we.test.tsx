@@ -7,11 +7,13 @@ import {
   findListed,
   formatStamp,
   greetingText,
+  isFreshStart,
   listText,
   mergePrompts,
   moveCursor,
   parseListing,
   previousSession,
+  projectSlug,
   promptFromLine,
 } from '../hooks/prompts'
 
@@ -70,6 +72,20 @@ describe('navigation helpers', () => {
   test('mergePrompts keeps known stamps and sorts by time', async () => {
     const merged = mergePrompts([{ uuid: 'b', at: 2, preview: 'b' }], [{ uuid: 'a', at: 1, preview: 'a' }, { uuid: 'b', at: 99, preview: 'b' }])
     expect(merged).toEqual([{ uuid: 'a', at: 1, preview: 'a' }, { uuid: 'b', at: 2, preview: 'b' }])
+  })
+})
+
+describe('session helpers', () => {
+  test('projectSlug names the transcript folder as Claude Code does', async () => {
+    expect(projectSlug('/Users/me/Documents/dev/agent-plugins')).toBe('-Users-me-Documents-dev-agent-plugins')
+    expect(projectSlug('/Users/me/.herdr/worktrees/My App_2')).toBe('-Users-me--herdr-worktrees-My-App-2')
+  })
+
+  test('isFreshStart tells a launch moments ago from a resume', async () => {
+    expect(isFreshStart(NOW - 5_000, NOW)).toBe(true)
+    expect(isFreshStart(NOW - 120_000, NOW)).toBe(false)
+    expect(isFreshStart(NOW - 24 * 60 * 60 * 1_000, NOW)).toBe(false)
+    expect(isFreshStart(NOW + 1, NOW)).toBe(false)
   })
 })
 
@@ -151,18 +167,25 @@ const promptLine = (uuid: string, minute: number) =>
   })
 
 /**
- * Stands in for the engine beneath the plugin: the clock, the store, grep over a
- * transcript holding `lines`, logs, toasts and the engine's own rows. A
- * transcript row's scroll has no stub point in the kit, so jumps toast there.
+ * Stands in for the engine beneath the plugin: the clock, the store, the
+ * configuration directory `/cfg`, grep over a transcript holding `lines`, logs,
+ * toasts and the engine's own rows. A transcript row's scroll has no stub point
+ * in the kit, so jumps toast there. `session` is read as each call comes, so a
+ * test can change it between session starts.
  */
-function engine(on: On, lines: string[], history: string[] = []) {
+function engine(on: On, lines: string[], history: string[] = [], transcript = TRANSCRIPT) {
   /** The texts of the toasts shown, in order. */
   const toasts: string[] = []
+  /** The session the engine reports: its id, its launch (a moment ago), and whether its transcript is written yet. */
+  const session = { id: 'current', startedAt: NOW - 5_000, hasTranscript: true }
+  /** The transcripts on disk, by path, with their lines; a test can add one. */
+  const transcripts: Record<string, string[]> = { [transcript]: lines }
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
+  mock.env(on, { CLAUDE_CONFIG_DIR: '/cfg/', HOME: '/home' })
   on('process.run', ($, e) => {
-    const file = e.argv[0] === 'grep' ? e.argv.at(-1) : undefined
-    const found = file === TRANSCRIPT ? lines : file === HISTORY ? history.filter(line => line.includes(`"project":"${PROJECT}"`)) : null
+    const file = e.argv[0] === 'grep' ? e.argv.at(-1) ?? '' : ''
+    const found = transcripts[file] ?? (file === HISTORY ? history.filter(line => line.includes(`"project":"${PROJECT}"`)) : null)
     const value = {
       exitCode: found === null ? 2 : found.length > 0 ? 0 : 1,
       stdout: found === null ? '' : found.join('\n') + '\n',
@@ -172,12 +195,22 @@ function engine(on: On, lines: string[], history: string[] = []) {
     }
     return { value }
   })
-  on('classic.SessionStart', () => ({}))
-  on('session.id', () => ({ value: 'current' }))
+  on('session.id', () => ({ value: session.id }))
   on('session.cwd', () => ({ value: PROJECT }))
+  on('session.root', () => ({ value: PROJECT }))
+  on('session.usage', () => ({ value: { startedAt: session.startedAt, context: { window: 200_000 }, rateLimits: [] } }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
-  on('fs.exists', ($, e) => ({ value: e.path === TRANSCRIPT }))
+  on('fs.exists', ($, e) => ({ value: session.hasTranscript && e.path in transcripts }))
+  on('fs.list', ($, e) => {
+    const entry = (name: string, kind: 'file' | 'dir') => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })
+    const folders = new Set(Object.keys(transcripts).map(path => path.split('/').at(-2) ?? ''))
+    if (e.path !== '/cfg/projects') {
+      return { value: [] }
+    }
+    return { value: [entry('-elsewhere', 'dir'), entry('notes.txt', 'file'), ...[...folders].map(name => entry(name, 'dir'))] }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('ui.toast', ($, e) => {
     toasts.push(e.text)
@@ -188,11 +221,64 @@ function engine(on: On, lines: string[], history: string[] = []) {
     return <Text>ENGINE</Text>
   })
 
-  return { toasts, clock }
+  return { toasts, clock, session, transcripts }
 }
 
-const startSession = ($: Engine) =>
-  $.classic.SessionStart({ source: 'resume', transcript_path: TRANSCRIPT })
+/** The mod's own session-ready event: a REPL by default, `claude -p` with `drawn` false. */
+const startSession = ($: Engine, drawn = true) =>
+  $.session.start({ cwd: PROJECT, surface: drawn ? 'terminal' : null, isInteractive: drawn })
+
+test('a transcript in a folder not named after the project is found by looking', async ($, on) => {
+  engine(on, [promptLine('p1', 21)], [], '/cfg/projects/-work-cut-1a2b/current.jsonl')
+  await startSession($)
+  const { text } = await $.command.run({
+    command: 'where-were-we', args: 'status', origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 120 },
+  })
+  expect(text?.split('\n')[1]).toBe('transcript: /cfg/projects/-work-cut-1a2b/current.jsonl')
+  expect(text?.startsWith('prompts known: 1;')).toBe(true)
+})
+
+test('a brand-new session finds its transcript once a turn has written it', async ($, on) => {
+  const { session } = engine(on, [promptLine('p1', 21)])
+  session.hasTranscript = false
+  await startSession($)
+  const status = async () =>
+    (
+      await $.command.run({
+        command: 'where-were-we', args: 'status', origin: { kind: 'composer' },
+        presentation: { isFullscreen: true, columns: 120 },
+      })
+    ).text?.split('\n').slice(0, 2) ?? []
+  expect((await status())[1]).toBe('transcript: not found yet')
+
+  session.hasTranscript = true
+  await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  const [known, found] = await status()
+  expect(found).toBe(`transcript: ${TRANSCRIPT}`)
+  expect(known?.startsWith('prompts known: 1;')).toBe(true)
+})
+
+test('a /resume in the running session backfills the resumed transcript after its first turn', async ($, on) => {
+  const { session, transcripts } = engine(on, [promptLine('p1', 21)])
+  await startSession($)
+  const resumed = '/cfg/projects/-work/resumed.jsonl'
+  transcripts[resumed] = [promptLine('r1', 10)]
+  // /resume switches the session id with no session.start.
+  session.id = 'resumed'
+  await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  const { text = '' } = await $.command.run({
+    command: 'where-were-we', args: 'status', origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 120 },
+  })
+  expect(text.split('\n')[1]).toBe(`transcript: ${resumed}`)
+
+  const row = await $.ui.mount({
+    plugin: 'where-were-we', surface: 'terminal', component: 'UserMessage', props: PROMPT_PROPS, requestId: 'r1',
+  })
+  expect(await row.find({ type: 'Text', text: /^12:10:00 ❯/ })).toBeDefined()
+  await row.unmount()
+})
 
 test('a resumed prompt row shows its time before the pointer', async ($, on) => {
   engine(on, [promptLine('p1', 21)])
@@ -379,65 +465,51 @@ describe('startup greeting', () => {
     historyLine('yesterday', 'run the tests', yesterday(4)),
   ]
   const greeting = 'Last here yesterday 18:04: “run the tests” · /where-were-we last'
-  const start = ($: Engine, source: 'startup' | 'resume' | 'clear' | 'compact') =>
-    $.classic.SessionStart({ source, transcript_path: TRANSCRIPT })
-  /** The mod's own session-ready event: a REPL by default, `claude -p` with `drawn` false. */
-  const ready = ($: Engine, drawn = true) =>
-    $.session.start({ cwd: PROJECT, surface: drawn ? 'terminal' : null, isInteractive: drawn })
   const DELAY = 1_500
 
-  test('a fresh start toasts how the previous session ended, once the session is ready', async ($, on) => {
+  test('a fresh start toasts how the previous session ended, a moment after it is ready', async ($, on) => {
     const { toasts, clock } = engine(on, [], history)
-    // As Claude Code orders them: the fresh start comes before anything draws.
-    await start($, 'startup')
-    expect(toasts).toEqual([])
-    await ready($)
+    await startSession($)
     await clock.advance(DELAY - 1)
     expect(toasts).toEqual([])
     await clock.advance(1)
     expect(toasts).toEqual([greeting])
   })
 
-  test('the other order greets too, and only once', async ($, on) => {
+  test('a reload of the same session is not greeted again', async ($, on) => {
     const { toasts, clock } = engine(on, [], history)
-    await ready($)
-    await start($, 'startup')
+    await startSession($)
     await clock.advance(DELAY)
-    expect(toasts).toEqual([greeting])
-    // A hot reload raises session.start again, with no fresh start.
-    await ready($)
+    // A hot reload raises session.start again, for the session already seen.
+    await startSession($)
     await clock.advance(DELAY)
     expect(toasts).toEqual([greeting])
   })
 
-  test('a resume, /clear or compaction is no fresh start', async ($, on) => {
-    const { toasts, clock } = engine(on, [], history)
-    for (const source of ['resume', 'clear', 'compact'] as const) {
-      await start($, source)
-    }
-    await ready($)
+  test('a resumed session, which began long ago, is not greeted', async ($, on) => {
+    const { toasts, clock, session } = engine(on, [], history)
+    session.startedAt = NOW - 3 * 60 * 60 * 1_000
+    await startSession($)
     await clock.advance(DELAY)
     expect(toasts).toEqual([])
   })
 
   test('a project with no earlier session is not greeted', async ($, on) => {
     const { toasts, clock } = engine(on, [], [historyLine('current', 'today', NOW)])
-    await start($, 'startup')
-    await ready($)
+    await startSession($)
     await clock.advance(DELAY)
     expect(toasts).toEqual([])
   })
 
   test('a session nothing draws (claude -p) is not greeted', async ($, on) => {
     const { toasts, clock } = engine(on, [], history)
-    await start($, 'startup')
-    await ready($, false)
+    await startSession($, false)
     await clock.advance(DELAY)
     expect(toasts).toEqual([])
   })
 
   test('greeting on|off turns it off and on, kept in the mod store', async ($, on) => {
-    const { toasts, clock } = engine(on, [], history)
+    const { toasts, clock, session } = engine(on, [], history)
     const command = async (args: string) =>
       (
         await $.command.run({
@@ -448,14 +520,15 @@ describe('startup greeting', () => {
 
     expect(await command('greeting')).toBe('The startup greeting is on. Change it with /where-were-we greeting on|off.')
     expect(await command('greeting off')).toBe('The startup greeting is off.')
-    await ready($)
-    await start($, 'startup')
+    await startSession($)
     await clock.advance(DELAY)
     expect(toasts).toEqual([])
 
     expect(await command('greeting maybe')).toBe('The greeting is on or off.')
     expect(await command('greeting on')).toBe('The startup greeting is on.')
-    await start($, 'startup')
+    // The next fresh session greets again.
+    session.id = 'next'
+    await startSession($)
     await clock.advance(DELAY)
     expect(toasts).toEqual([greeting])
   })
