@@ -173,7 +173,13 @@ const promptLine = (uuid: string, minute: number) =>
  * in the kit, so jumps toast there. `session` is read as each call comes, so a
  * test can change it between session starts.
  */
-function engine(on: On, lines: string[], history: string[] = [], transcript = TRANSCRIPT) {
+function engine(
+  on: On,
+  lines: string[],
+  history: string[] = [],
+  transcript = TRANSCRIPT,
+  env: Record<string, string> = { CLAUDE_CONFIG_DIR: '/cfg/', HOME: '/home' },
+) {
   /** The texts of the toasts shown, in order. */
   const toasts: string[] = []
   /** The session the engine reports: its id, its launch (a moment ago), and whether its transcript is written yet. */
@@ -182,7 +188,7 @@ function engine(on: On, lines: string[], history: string[] = [], transcript = TR
   const transcripts: Record<string, string[]> = { [transcript]: lines }
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
-  mock.env(on, { CLAUDE_CONFIG_DIR: '/cfg/', HOME: '/home' })
+  mock.env(on, env)
   on('process.run', ($, e) => {
     const file = e.argv[0] === 'grep' ? e.argv.at(-1) ?? '' : ''
     const found = transcripts[file] ?? (file === HISTORY ? history.filter(line => line.includes(`"project":"${PROJECT}"`)) : null)
@@ -206,7 +212,7 @@ function engine(on: On, lines: string[], history: string[] = [], transcript = TR
   on('fs.list', ($, e) => {
     const entry = (name: string, kind: 'file' | 'dir') => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })
     const folders = new Set(Object.keys(transcripts).map(path => path.split('/').at(-2) ?? ''))
-    if (e.path !== '/cfg/projects') {
+    if (e.path !== transcript.split('/').slice(0, -2).join('/')) {
       return { value: [] }
     }
     return { value: [entry('-elsewhere', 'dir'), entry('notes.txt', 'file'), ...[...folders].map(name => entry(name, 'dir'))] }
@@ -236,6 +242,18 @@ test('a transcript in a folder not named after the project is found by looking',
     presentation: { isFullscreen: true, columns: 120 },
   })
   expect(text?.split('\n')[1]).toBe('transcript: /cfg/projects/-work-cut-1a2b/current.jsonl')
+  expect(text?.startsWith('prompts known: 1;')).toBe(true)
+})
+
+test('with HOME unset (native Windows), the transcript is found under USERPROFILE', async ($, on) => {
+  const transcript = '/Users/me/.claude/projects/-work/current.jsonl'
+  engine(on, [promptLine('p1', 21)], [], transcript, { USERPROFILE: '/Users/me' })
+  await startSession($)
+  const { text } = await $.command.run({
+    command: 'where-were-we', args: 'status', origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 120 },
+  })
+  expect(text?.split('\n')[1]).toBe(`transcript: ${transcript}`)
   expect(text?.startsWith('prompts known: 1;')).toBe(true)
 })
 

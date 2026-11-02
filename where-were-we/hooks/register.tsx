@@ -133,13 +133,17 @@ async function listOrder($: EngineInterface): Promise<Order> {
   return ORDERS.find(order => order === kept) ?? 'chron'
 }
 
-/** Claude Code's configuration directory: CLAUDE_CONFIG_DIR, else `~/.claude`. */
+/**
+ * Claude Code's configuration directory: CLAUDE_CONFIG_DIR, else `.claude` in
+ * the home directory (HOME, or USERPROFILE on native Windows, where HOME may
+ * be unset).
+ */
 async function configDir($: EngineInterface) {
   const custom = await $.env.get('CLAUDE_CONFIG_DIR')
   if (custom) {
-    return custom.replace(/\/+$/, '')
+    return custom.replace(/[/\\]+$/, '')
   }
-  const home = await $.env.get('HOME')
+  const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
   return home ? `${home}/.claude` : null
 }
 
