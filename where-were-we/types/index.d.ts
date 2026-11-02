@@ -16,10 +16,8 @@ declare module 'claude-code' {
       cursor: number | null
       /** Each prompt row's timestamp, keyed by the row's id. */
       stamp: StateFamily<number | null>
-      /** The session's transcript file, as the classic hook events report it. */
+      /** The session's transcript file, once found under the configuration directory. */
       transcriptPath: string | null
-      /** The transcript the prompts were last backfilled from. */
-      backfilledFrom: string | null
     }
   }
 }

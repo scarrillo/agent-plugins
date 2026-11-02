@@ -262,3 +262,22 @@ export function greetingText(past: PastSession, now: number): string | null {
 
   return `Last here ${describeWhen(last.at, now)}: “${truncate(last.preview, LISTED_LIMIT)}” · /where-were-we last`
 }
+
+/** How long after its launch a session still counts as a fresh start. */
+export const FRESH_START_MS = 120_000
+
+/**
+ * The folder Claude Code keeps a project's transcripts in, under `projects/`:
+ * the project's path with every character but a letter or digit made `-`.
+ */
+export function projectSlug(path: string): string {
+  return path.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
+/**
+ * Whether a session that began at `startedAt` is a fresh start at `now`: a
+ * resumed session counts from its first launch, so it began long before.
+ */
+export function isFreshStart(startedAt: number, now: number): boolean {
+  return now >= startedAt && now - startedAt < FRESH_START_MS
+}

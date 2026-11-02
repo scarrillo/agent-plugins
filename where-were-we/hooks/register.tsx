@@ -9,11 +9,13 @@ import {
   fullStamp,
   greetingText,
   historyMarker,
+  isFreshStart,
   listText,
   mergePrompts,
   moveCursor,
   parseListing,
   previousSession,
+  projectSlug,
   promptFromLine,
   toPreview,
   truncate,
@@ -26,6 +28,8 @@ const LISTED_DEFAULT = 6
 const LISTED_MAX = 50
 /** How long after the session is ready the startup greeting waits. */
 const GREETING_DELAY_MS = 1_500
+/** How many session ids the mod's store remembers, so a reload is never greeted. */
+const SEEN_MAX = 50
 /** `chron` lists the newest prompt last (nearest the prompt), `reverse` first. */
 const ORDERS = ['chron', 'reverse'] as const
 type Order = (typeof ORDERS)[number]
@@ -40,7 +44,6 @@ const prompts = atom({ plugin: 'where-were-we', key: 'prompts' } as const, [], {
 const cursor = atom({ plugin: 'where-were-we', key: 'cursor' } as const, null)
 const stamp = atom({ plugin: 'where-were-we', key: 'stamp' } as const, null)
 const transcriptPath = atom({ plugin: 'where-were-we', key: 'transcriptPath' } as const, null)
-const backfilledFrom = atom({ plugin: 'where-were-we', key: 'backfilledFrom' } as const, null)
 
 /** The latest log lines, for `/where-were-we status` (a reload starts it over). */
 const recent: string[] = []
@@ -93,7 +96,6 @@ async function backfill($: EngineInterface, path: string, why: string) {
       .map(promptFromLine)
       .filter((prompt): prompt is Prompt => prompt !== null)
     const added = await remember($, found)
-    await update($, backfilledFrom, () => path)
     debug(
       $,
       `backfill (${why}): ${found.length} prompts in transcript, ${added} new` +
@@ -132,17 +134,75 @@ async function listOrder($: EngineInterface): Promise<Order> {
 }
 
 /**
- * Claude Code's prompt history file: beside `projects/` in the configuration
- * directory the transcript lives under, so a custom CLAUDE_CONFIG_DIR is kept.
+ * Claude Code's configuration directory: CLAUDE_CONFIG_DIR, else `.claude` in
+ * the home directory (HOME, or USERPROFILE on native Windows, where HOME may
+ * be unset).
  */
-async function historyPath($: EngineInterface) {
-  const transcript = await read($, transcriptPath)
-  const projects = transcript?.lastIndexOf('/projects/') ?? -1
-  if (transcript && projects > 0) {
-    return `${transcript.slice(0, projects)}/history.jsonl`
+async function configDir($: EngineInterface) {
+  const custom = await $.env.get('CLAUDE_CONFIG_DIR')
+  if (custom) {
+    return custom.replace(/[/\\]+$/, '')
   }
-  const home = await $.env.get('HOME')
-  return home ? `${home}/.claude/history.jsonl` : null
+  const home = (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
+  return home ? `${home}/.claude` : null
+}
+
+/**
+ * This session's transcript, `<config>/projects/<project folder>/<id>.jsonl`,
+ * or null while it has none (a brand-new session writes it with its first
+ * row). The folder is named after the project's path; one Claude Code named
+ * otherwise (a path too long for a folder name) is found by looking in each.
+ */
+async function findTranscript($: EngineInterface, file: string) {
+  const config = await configDir($)
+  if (config === null) {
+    return null
+  }
+  const projects = `${config}/projects`
+  const named = new Set([projectSlug(await $.session.root()), projectSlug(await $.session.cwd())])
+  for (const folder of named) {
+    if (await $.fs.exists(`${projects}/${folder}/${file}`)) {
+      return `${projects}/${folder}/${file}`
+    }
+  }
+  try {
+    for (const entry of await $.fs.list(projects)) {
+      if (entry.kind === 'dir' && !named.has(entry.name) && (await $.fs.exists(`${projects}/${entry.name}/${file}`))) {
+        return `${projects}/${entry.name}/${file}`
+      }
+    }
+  } catch (error) {
+    debug($, `could not list ${projects}: ${String(error)}`)
+  }
+
+  return null
+}
+
+/**
+ * The transcript known for this session, else a fresh look for it (kept once
+ * found), then backfilled from. The kept one is for the session id it names:
+ * /clear, /resume and a fork switch the id with no session.start, so a kept
+ * transcript of another id is looked for again.
+ */
+async function backfillTranscript($: EngineInterface, why: string) {
+  const file = `${await $.session.id()}.jsonl`
+  let path = await read($, transcriptPath)
+  if (path === null || !path.endsWith(`/${file}`)) {
+    path = await findTranscript($, file)
+    if (path === null) {
+      debug($, `backfill (${why}): no transcript yet`)
+      return
+    }
+    await update($, transcriptPath, () => path)
+    debug($, `transcript: ${path}`)
+  }
+  await backfill($, path, why)
+}
+
+/** Claude Code's prompt history file, in the configuration directory. */
+async function historyPath($: EngineInterface) {
+  const config = await configDir($)
+  return config === null ? null : `${config}/history.jsonl`
 }
 
 /**
@@ -203,28 +263,46 @@ async function greet($: EngineInterface) {
 }
 
 /**
- * The greeting needs two events, in either order: a fresh start (classic
- * SessionStart, `startup`), which fires before anything draws, and
- * session.start, which says whether something draws. A reload fires only
- * session.start, and starts this module over, so it never greets.
+ * Records the session id in the mod's store, newest last, and says whether it
+ * was new there. session.start comes again on a reload, with the id seen.
  */
-const startup: { isGreetingPending: boolean; ready: { isDrawn: boolean } | null } = {
-  isGreetingPending: false,
-  ready: null,
+async function isFirstLoad($: EngineInterface, id: string) {
+  const kept = await $.store.get('seenSessions')
+  const seen = Array.isArray(kept) ? kept.filter((one): one is string => typeof one === 'string') : []
+  if (seen.includes(id)) {
+    return false
+  }
+  await $.store.set('seenSessions', [...seen, id].slice(-SEEN_MAX))
+
+  return true
 }
 
-/** Greets once both startup events have come; called by each. */
-function greetWhenReady($: EngineInterface) {
-  if (!startup.isGreetingPending || startup.ready === null) {
-    return
+/**
+ * Greets a fresh start only: a session this mod has not loaded in before
+ * (no reload), launched moments ago (no resume), that draws (no `claude -p`).
+ */
+async function greetIfFresh($: EngineInterface, isDrawn: boolean) {
+  try {
+    const id = await $.session.id()
+    if (!(await isFirstLoad($, id))) {
+      debug($, `greeting: session ${id} loaded before (a reload), skipped`)
+      return
+    }
+    const { startedAt } = await $.session.usage()
+    const now = await $.clock.now()
+    if (!isFreshStart(startedAt, now)) {
+      debug($, `greeting: session began ${fullStamp(startedAt)} (a resume), skipped`)
+      return
+    }
+    if (!isDrawn) {
+      debug($, 'greeting: nothing draws (claude -p or SDK), skipped')
+      return
+    }
+    // A moment for the screen to come up, so the toast isn't drawn under it.
+    $.clock.after(GREETING_DELAY_MS, () => void greet($))
+  } catch (error) {
+    debug($, `greeting check failed: ${String(error)}`)
   }
-  startup.isGreetingPending = false
-  if (!startup.ready.isDrawn) {
-    debug($, 'greeting: nothing draws (claude -p or SDK), skipped')
-    return
-  }
-  // A moment for the screen to come up, so the toast isn't drawn under it.
-  $.clock.after(GREETING_DELAY_MS, () => void greet($))
 }
 
 /**
@@ -291,31 +369,10 @@ export const register: Register = on => {
       immediate: true,
     })
     debug($, `loaded; utc offset ${-new Date().getTimezoneOffset()} min`)
-    startup.ready = { isDrawn: e.isInteractive && e.surface !== null }
-    greetWhenReady($)
-
-    return next(e)
-  })
-
-  on('classic.SessionStart', async ($, e, next) => {
-    await update($, transcriptPath, () => e.transcript_path)
-    await backfill($, e.transcript_path, `session ${e.source}`)
-    // Only a fresh start: a resume, /clear, compaction or reload is no return.
-    if (e.source === 'startup') {
-      startup.isGreetingPending = true
-      greetWhenReady($)
-    }
-
-    return next(e)
-  })
-
-  // Covers a mod enabled mid-session: no SessionStart came, so the first
-  // prompt after the load backfills the prompts sent before it.
-  on('classic.UserPromptSubmit', async ($, e, next) => {
-    await update($, transcriptPath, () => e.transcript_path)
-    if ((await read($, backfilledFrom)) !== e.transcript_path) {
-      await backfill($, e.transcript_path, 'first prompt since load')
-    }
+    await greetIfFresh($, e.isInteractive && e.surface !== null)
+    // Comes on launch, resume, reload and a mod enabled mid-session alike, so
+    // each picks up the prompts already in the transcript.
+    await backfillTranscript($, 'session start')
 
     return next(e)
   })
@@ -336,10 +393,7 @@ export const register: Register = on => {
   // Picks up prompts queued while a turn ran, which arrive as deliveries.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    const path = await read($, transcriptPath)
-    if (path !== null) {
-      await backfill($, path, 'turn complete')
-    }
+    await backfillTranscript($, 'turn complete')
 
     return result
   })
@@ -403,8 +457,7 @@ export const register: Register = on => {
       const now = await $.clock.now()
       const lines = [
         `prompts known: ${list.length}; cursor: ${await read($, cursor) ?? 'none'}; listing: ${await listCount($)}, ${await listOrder($)}; greeting: ${(await isGreetingOn($)) ? 'on' : 'off'}`,
-        `transcript: ${await read($, transcriptPath) ?? 'not seen yet'}`,
-        `backfilled from: ${await read($, backfilledFrom) ?? 'never'}`,
+        `transcript: ${await read($, transcriptPath) ?? 'not found yet'}`,
         `fullscreen: ${e.presentation.isFullscreen}; utc offset: ${-new Date().getTimezoneOffset()} min`,
         ...list.slice(-5).map(prompt => `  ${formatStamp(prompt.at, now)}  ${prompt.uuid}`),
         'recent log:',
