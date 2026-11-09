@@ -4,6 +4,7 @@ Plugins and skills for coding agents.
 
 - [where-were-we](#where-were-we): Claude Code mod
 - [pr-review-cycle](#pr-review-cycle): skill for any agent
+- [review-council](#review-council): skill for any agent
 - [release](#release): Claude Code plugin
 
 ## where-were-we
@@ -33,6 +34,20 @@ npx skills add scarrillo/agent-plugins --skill pr-review-cycle -g
 - Watches for new review activity (live in Claude Code; logged in other agents) and offers to run the cycle again.
 
 Ask about a PR, or call it with `/pr-review-cycle` (Claude Code) or `$pr-review-cycle` (Codex). [Docs](pr-review-cycle/)
+
+## review-council
+
+A skill that sends your changes to every coding agent CLI installed on your machine (Codex, Claude Code, Copilot CLI, Antigravity) for an independent, fresh-context review, then verifies each finding against the code.
+
+```bash
+npx skills add scarrillo/agent-plugins --skill review-council -g
+```
+
+- Reviews uncommitted changes, unpushed commits, the whole branch vs. main, or an open PR.
+- Each member runs read-only in its own process, with no memory of your session.
+- The lead marks every finding Confirmed or Disproved and proposes Fix or Won't fix. It never edits, commits or posts to GitHub.
+
+Call it with `/review-council` (Claude Code) or `$review-council` (Codex). [Docs](review-council/)
 
 ## release
 
