@@ -15,6 +15,7 @@
 # Writes:
 #   replies/<member>.md   the member's reply (may be empty on failure)
 #   logs/<member>.log     stderr / progress output
+#   logs/<member>.problem one-line failure a reply parser found (claude, copilot)
 #   logs/<member>.model   the model the CLI reports having used (authoritative where
 #                         the CLI exposes it; "unknown" otherwise)
 #   status.md             one line per member: name, status, duration, model, reply path
@@ -74,12 +75,29 @@ rm -f "$SESSION/.cancelled"
 # claude and copilot are run with JSON output so the model id comes from the
 # CLI itself; these pull the reply text out and print the model. JSON::PP has
 # been in core perl since 5.14, so this adds no dependency beyond the timeout wrapper.
-claude_reply() {  # json-file reply-file -> prints model
+# A parser that finds a failure writes a one-line status to problem-file, and
+# its details to stderr (the member's log).
+claude_reply() {  # json-file reply-file problem-file -> prints model
   perl -MJSON::PP -e '
-    local $/; my $d = eval { decode_json(<STDIN>) } || {};
-    open my $o, ">:encoding(UTF-8)", $ARGV[0] or die; print $o ($d->{result} // ""); close $o;
-    my @m = sort keys %{ $d->{modelUsage} || {} }; print @m ? join(", ", @m) : "unknown";
-  ' "$2" < "$1"
+    my ($rf, $pf) = @ARGV;
+    sub problem { open my $p, ">", $pf or die; print $p "$_[0]\n"; close $p }
+    open my $o, ">:encoding(UTF-8)", $rf or die;
+    local $/; my $d = eval { decode_json(<STDIN>) };
+    # With verbose on (a global config setting) the CLI prints every event as a
+    # list; the outcome is the last "result" event.
+    ($d) = reverse grep { ref $_ eq "HASH" && ($_->{type} // "") eq "result" } @$d if ref $d eq "ARRAY";
+    unless (ref $d eq "HASH" && ($d->{type} // "result") eq "result") { problem("claude unparsed-json (see log)"); print "unknown"; exit 0 }
+    my @m = ref $d->{modelUsage} eq "HASH" ? sort(keys %{ $d->{modelUsage} }) : ();
+    my $sub = $d->{subtype} // "success";
+    if ($d->{is_error} || $sub ne "success") {
+      my $why = $sub ne "success" ? $sub : "api " . ($d->{api_error_status} // "error"); $why =~ s/[^\w. -]/_/g;
+      problem("claude error: $why");
+      print STDERR "claude result: $why: " . substr(ref $d->{result} ? "" : $d->{result} // "", 0, 300) . "\n";
+    } elsif (!defined $d->{result} || ref $d->{result}) {
+      problem("claude unparsed-json (see log)");
+    } else { print $o $d->{result} }
+    close $o; print @m ? join(", ", @m) : "unknown";
+  ' "$2" "$3" < "$1"
 }
 agy_deny_settings() {  # prints the --settings JSON: our read-only deny rules + the user's persisted deny rules
   perl -MJSON::PP -e '
@@ -102,17 +120,28 @@ agy_reply() {  # json-file reply-file -> prints "<status>[ denied:<actions>]" or
     print(($d->{status} // "?") . (@den ? " denied:" . join(",", @den) : ""));
   ' "$2" < "$1"
 }
-copilot_reply() {  # jsonl-file reply-file -> prints model
+copilot_reply() {  # jsonl-file reply-file problem-file -> prints model
   perl -MJSON::PP -e '
-    my (@msgs, $picked, $tier);
-    while (<STDIN>) { my $e = eval { decode_json($_) } or next; my $d = $e->{data} || {};
-      push @msgs, $d if ($e->{type} // "") eq "assistant.message";
-      ($picked, $tier) = ($d->{chosenModel}, $d->{autoTier}) if ($e->{type} // "") eq "session.auto_mode_resolved"; }
+    my ($rf, $pf) = @ARGV; my (@msgs, $picked, $tier, $err, $untrusted, $events);
+    sub problem { open my $p, ">", $pf or die; print $p "$_[0]\n"; close $p }
+    while (<STDIN>) { my $e = eval { decode_json($_) }; next unless ref $e eq "HASH"; $events++;
+      my $d = ref $e->{data} eq "HASH" ? $e->{data} : {}; my $t = $e->{type} // "";
+      push @msgs, $d if $t eq "assistant.message";
+      ($picked, $tier) = ($d->{chosenModel}, $d->{autoTier}) if $t eq "session.auto_mode_resolved";
+      $err = $d if $t eq "session.error";
+      $untrusted = 1 if $t eq "session.warning" && ($d->{warningType} // "") eq "folder_not_trusted"; }
     my @f = grep { ($_->{phase} // "") eq "final_answer" } @msgs; @f = @msgs unless @f;
-    open my $o, ">:encoding(UTF-8)", $ARGV[0] or die; print $o (@f ? $f[-1]{content} // "" : ""); close $o;
+    open my $o, ">:encoding(UTF-8)", $rf or die;
+    print $o $f[-1]{content} if @f && defined $f[-1]{content} && !ref $f[-1]{content}; close $o;
+    # Only applied by run_member when the run failed or produced no reply.
+    if (!$events) { problem("copilot unparsed-json (see log)") }
+    elsif ($err) { my $why = $err->{errorType} // "unknown"; $why =~ s/[^\w. -]/_/g;
+      problem($why eq "quota" ? "copilot quota exceeded" : "copilot error: $why");
+      print STDERR "copilot session error: " . ($err->{message} // "") . "\n" }
+    elsif ($untrusted) { problem("copilot folder not trusted (add it to trustedFolders in ~/.copilot/config.json)") }
     my $m = @f ? ($f[-1]{model} // "unknown") : "unknown";
     $m .= " (Fusion" . ($tier ? "/$tier" : "") . " picked $picked)" if $picked; print $m;
-  ' "$2" < "$1"
+  ' "$2" "$3" < "$1"
 }
 
 # Signature of the working tree (tracked edits + untracked files + HEAD); used
@@ -153,9 +182,10 @@ with_timeout() {  # uses $WRAPPER_PIDFILE if set
 run_member() {
   local m=$1
   local PF="$SESSION/prompts/$m.md" RF="$SESSION/replies/$m.md" LF="$SESSION/logs/$m.log"
+  local PROBLEM="$SESSION/logs/$m.problem" problem=""
   local start rc status agy_status tree_before tree_changed=""
   start=$(date +%s)
-  : > "$RF"
+  : > "$RF"; rm -f "$PROBLEM"
   if [ -e "$SESSION/.cancelled" ]; then
     printf '%s\tcancelled\t0s\tunknown\t%s\n' "$m" "$RF" >> "$SESSION/status.md"; return
   fi
@@ -194,10 +224,12 @@ run_member() {
       # ignores user/project settings; file tools are confined to cwd + session;
       # --strict-mcp-config with no --mcp-config attaches no MCP servers.
       # JSON output so the model id (modelUsage) comes from the CLI; the reply
-      # text is extracted into $RF afterwards.
+      # text is extracted into $RF afterwards. --restricted does not ignore the
+      # global config, where verbose=true turns the JSON into an event list, so
+      # the single-result shape is pinned with --settings.
       local clm=(); [ -n "$CLAUDE_MODEL" ] && clm=(--model "$CLAUDE_MODEL")
       with_timeout claude -p ${clm[@]+"${clm[@]}"} --restricted --tools Read,Grep,Glob --strict-mcp-config \
-        --no-session-persistence --add-dir "$SESSION" --output-format json < "$PF" > "$LF.json" 2> "$LF" ;;
+        --settings '{"verbose":false}' --no-session-persistence --add-dir "$SESSION" --output-format json < "$PF" > "$LF.json" 2> "$LF" ;;
     copilot)
       # GitHub Copilot CLI, headless. --available-tools limits the model to
       # read-only file tools (this also drops the GitHub MCP tools, so nothing
@@ -247,8 +279,8 @@ run_member() {
   local model="unknown"
   case $m in
     codex)  model=$(sed -n 's/^model: *//p' "$LF" | head -1); model=${model:-unknown} ;;
-    claude)  [ -s "$LF.json" ] && { model=$(claude_reply "$LF.json" "$RF" 2>> "$LF") || model="unknown"; } ;;
-    copilot) [ -s "$LF.json" ] && { model=$(copilot_reply "$LF.json" "$RF" 2>> "$LF") || model="unknown"; } ;;
+    claude)  [ -s "$LF.json" ] && { model=$(claude_reply "$LF.json" "$RF" "$PROBLEM" 2>> "$LF") || { model="unknown"; echo "claude unparsed-json (see log)" > "$PROBLEM"; }; } ;;
+    copilot) [ -s "$LF.json" ] && { model=$(copilot_reply "$LF.json" "$RF" "$PROBLEM" 2>> "$LF") || { model="unknown"; echo "copilot unparsed-json (see log)" > "$PROBLEM"; }; } ;;
     antigravity)
       # agy's JSON has no model field: report the pin, else the configured default.
       # agy ends the turn with an empty response when a tool is auto-denied, so
@@ -260,13 +292,14 @@ run_member() {
   esac
   case "${agy_status:-}" in *denied:*) [ -s "$RF" ] && model="$model; ${agy_status#* }" ;; esac
   printf '%s\n' "$model" > "$SESSION/logs/$m.model"
+  [ -s "$PROBLEM" ] && problem=$(cat "$PROBLEM")
   if [ "$rc" -eq 142 ]; then status="timeout after ${TIMEOUT}s"
   elif [ "$rc" -eq 143 ]; then status="cancelled"
   elif [ "$rc" -eq 127 ]; then status="could not start (see log)"
-  elif [ "$rc" -ne 0 ]; then status="exit $rc"
+  elif [ "$rc" -ne 0 ]; then status="${problem:-exit $rc}"
   elif [ ! -s "$RF" ]; then
     # agy explains an empty reply in its own status/denied_actions; surface that.
-    if [ "$m" = antigravity ] && [ -n "${agy_status:-}" ]; then status="agy $agy_status"; else status="empty reply"; fi
+    if [ "$m" = antigravity ] && [ -n "${agy_status:-}" ]; then status="agy $agy_status"; else status="${problem:-empty reply}"; fi
   else status="ok"; fi
   [ -n "$tree_changed" ] && status="$status (working tree changed during review)"
   rm -f "$WRAPPER_PIDFILE"

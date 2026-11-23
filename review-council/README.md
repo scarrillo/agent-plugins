@@ -39,7 +39,7 @@ Won't fix: 1 (accepted risk). Your call: 0.
 
 ### How it works
 - Each agent works from a separate process with no context from your current session, so you get genuinely independent reads rather than one model agreeing with itself.
-- **Verified, not merged.** The council lead opens every cited line and marks each finding Confirmed, Disproved, or Not checked, then gives a verified recommendation: Fix with the change, or Won't fix with the reason. It reports per member and records the model each member actually ran on. Agreement between members is shown, never silently collapsed.
+- **Verified, not merged.** The council lead checks each finding against the code before recommending anything, and marks it Confirmed, Disproved, or Not checked. Checked findings get a verified recommendation: Fix with the change, or Won't fix with the reason. Not checked findings get no recommendation. It reports per member and records the model each member actually ran on. Agreement between members is shown, never silently collapsed.
 - **Review only.** Council members run read-only; the lead never edits, commits, switches branches, or posts to GitHub. Fixes are a separate ask. 
 - You choose the code review target: uncommitted, unpushed, branch, or PR. See Code Review Targets below.
 - **Everything stays local.** Packets, prompts, replies, and status live under `~/.council/`, one folder per run, so any later session can read them back.
