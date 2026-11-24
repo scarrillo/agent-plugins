@@ -16,7 +16,7 @@ SELF's own CLI **is** a member: a `claude -p` / `codex review` process has no ac
 
 **0. Parse.** From the slash-command arguments (`$ARGUMENTS`) or the user's message, all optional: a target (`uncommitted`, `unpushed` (alias `local`), `branch`, `pr 123` / `#123` / a PR URL), `--base <ref>`, `--wait` / `--background`, member names ("just codex"), focus text ("focus on concurrency"), and per-run setting overrides ("copilot at intelligence", "pin copilot to gpt-5.6-sol", "timeout 20 minutes") — see **Settings**. If the message is about settings themselves ("review council settings", "always run in background", "default copilot to intelligence"), go to **Settings** instead of running a review. SELF = the product you run in (Claude Code → `claude`, Codex → `codex`, Copilot CLI → `copilot`, Antigravity → `antigravity`). `$SKILL_DIR` = the directory containing this file.
 
-**1. Detect members.** Every CLI in the table below whose binary exists (`command -v`) and answers `--version` within ~15s. Include SELF. If the user named members, use only those; otherwise if the `MEMBERS` setting is non-empty, use that list (minus anything not installed). If none are available, say so and stop — never substitute your own review for the council's and never fake a member.
+**1. Detect members.** Every CLI in the table below whose binary exists (`command -v`) and answers `--version` within ~15s. Include SELF. Each member at most once (`review-fanout.sh` refuses duplicates). If the user named members, use only those; otherwise if the `MEMBERS` setting is non-empty, use that list (minus anything not installed). If none are available, say so and stop — never substitute your own review for the council's and never fake a member.
 
 **2. Choose the target.** If the message didn't name one, `AskUserQuestion` once. Each option is defined by its **base**, i.e. what the review compares against; use these labels and descriptions verbatim so the difference is visible in the prompt:
 
@@ -29,7 +29,7 @@ SELF's own CLI **is** a member: a `claude -p` / `codex review` process has no ac
 
 When the branch has no upstream, say so and drop the Unpushed option, since it would be identical to Whole branch. When the tree is clean, drop Uncommitted. Never show an option that resolves to an empty diff.
 
-Resolve it with the commands in **Targets** below. If the resulting diff is empty and there are no untracked files, say there is nothing to review and stop.
+Resolve it with the commands in **Targets** below. If `diff.patch` would be empty, say there is nothing to review and stop. Untracked files count only for `uncommitted`, the one mode whose packet includes them; in the other modes an untracked file does not make the review non-empty.
 
 **3. Session + packet.** `SESSION=~/.council/$(date +%Y%m%d-%H%M%S)-review-<slug>`; create it owner-only, since it will hold full diffs, and without `-p` on the session itself so a same-second collision fails instead of sharing a directory: `(umask 077 && mkdir -p ~/.council && mkdir "$SESSION" && mkdir -p "$SESSION"/{prompts,replies,logs}) && chmod 700 "$SESSION" || stop and tell the user` (the parent may not exist yet on a fresh install; only the session itself is non-recursive). Write:
 
@@ -185,7 +185,7 @@ Persistent defaults live in plain `KEY=value` files, read as data by `scripts/se
 | `COPILOT_MODEL` | `fusion` | router, or a pinned id such as `gpt-5.6-sol`; empty = Copilot's own default with no model, tier, or effort flags |
 | `COPILOT_AUTO_TIER` | `balance` | Fusion profile; `intelligence` is the higher tier |
 | `COPILOT_EFFORT` | `medium` | `--reasoning-effort`, sent only for a pinned copilot model |
-| `AGY_MODEL` | `gemini-3.8-flash` | antigravity model family; empty = agy's configured default |
+| `AGY_MODEL` | `gemini-3.8-flash` | antigravity model family; empty = agy's configured default. An effort suffix such as `-high` is rejected; set `AGY_EFFORT` instead |
 | `AGY_EFFORT` | `high` | antigravity `--effort`: low, medium, high, xhigh, max |
 
 Commands (`$SKILL_DIR/scripts/settings.sh`): `show` (effective values with their source), `get KEY`, `set KEY VALUE [--repo]`, `unset KEY [--repo]`, `path [--repo]`. Values are validated at every layer; an invalid value in a file or in the environment is ignored with a warning, never applied. `REVIEW_TIMEOUT` must be a positive integer (0 would disable the timeout).

@@ -41,6 +41,9 @@ validate() {  # key value  (printf adds the newline so an empty value is still o
   local re; re=$(spec_field "$1" 3)
   case $2 in *$'\n'*|*$'\r'*) echo "settings.sh: invalid $1: value must be a single line" >&2; return 1 ;; esac
   printf '%s\n' "$2" | grep -Eq "$re" || { echo "settings.sh: invalid $1='$2' (expected $re)" >&2; return 1; }
+  # review-fanout.sh always sends --effort with a pinned family, which conflicts with per-effort ids.
+  if [ "$1" = AGY_MODEL ]; then case $2 in *-low|*-medium|*-high|*-xhigh|*-max)
+    echo "settings.sh: invalid AGY_MODEL='$2': set the model family (e.g. gemini-3.8-flash) and the effort with AGY_EFFORT" >&2; return 1 ;; esac; fi
 }
 
 # An explicitly empty value (KEY= in a file, or KEY= in the environment) is a
@@ -64,7 +67,9 @@ write_key() {  # mode(set|unset) key value file
   for i in $(seq 1 50); do if mkdir "$lock" 2>/dev/null; then got=1; break; fi; sleep 0.1; done
   # Only the call that created the lock may proceed or remove it.
   [ "$got" = 1 ] || { echo "settings.sh: could not lock $f (held by another writer)" >&2; return 1; }
-  trap 'rmdir "$lock" 2>/dev/null' RETURN
+  # RETURN does not fire when a signal ends the script, so clean up on those too.
+  trap 'rm -f "${tmp:-}"; rmdir "$lock" 2>/dev/null; exit 130' INT TERM HUP
+  trap 'rmdir "$lock" 2>/dev/null; trap - INT TERM HUP RETURN' RETURN
   tmp=$(mktemp) || return 1
   grep -v "^[[:space:]]*$k=" "$f" > "$tmp"; rc=$?
   # grep: 0 = other lines kept, 1 = nothing else in the file; anything higher is

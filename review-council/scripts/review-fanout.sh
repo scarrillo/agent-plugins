@@ -52,6 +52,9 @@ AGY_EFFORT=$(setting AGY_EFFORT)
 
 # Pre-flight: every named member needs its prompt before anything is launched.
 # (A lead-side shell slip once produced a single file named after all members.)
+# One invocation per member: duplicates would share reply, log, and pid files.
+dups=$(printf '%s\n' "$@" | sort | uniq -d | tr '\n' ' ')
+[ -z "$dups" ] || { echo "review-fanout.sh: duplicate member(s): $dups" >&2; exit 2; }
 missing=""
 for m in "$@"; do [ -s "$SESSION/prompts/$m.md" ] || missing="$missing $m"; done
 if [ -n "$missing" ]; then
@@ -66,6 +69,7 @@ fi
   || { echo "review-fanout.sh: cannot create an owner-only session directory at $SESSION" >&2; exit 2; }
 umask 077
 rm -f "$SESSION/.cancelled"
+export CANCEL_FILE="$SESSION/.cancelled"
 : > "$SESSION/status.md"
 
 # macOS has no `timeout`; perl is universal. Runs the member in its own
@@ -170,6 +174,9 @@ with_timeout() {  # uses $WRAPPER_PIDFILE if set
   perl -e '
     my $t = shift;
     if ($ENV{WRAPPER_PIDFILE}) { if (open(my $fh, ">", $ENV{WRAPPER_PIDFILE})) { print $fh "$$\n"; close $fh } }
+    # cancel_all marks .cancelled before it scans the pid files, so a wrapper
+    # that registered too late for the scans still sees the marker here.
+    exit 143 if $ENV{CANCEL_FILE} && -e $ENV{CANCEL_FILE};
     my $pid = fork // die "fork: $!";
     if ($pid == 0) { setpgrp(0, 0); exec {$ARGV[0]} @ARGV or do { print STDERR "cannot exec $ARGV[0]: $!\n"; exit 127 } }
     $SIG{ALRM} = sub { kill TERM => -$pid; sleep 2; kill KILL => -$pid; exit 142 };
