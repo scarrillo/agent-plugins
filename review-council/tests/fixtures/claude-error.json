@@ -1,0 +1,1 @@
+[{"type":"system","subtype":"init"},{"type":"result","subtype":"error_max_turns","is_error":true,"result":"Reached max turns","modelUsage":{"model-a":{}}}]

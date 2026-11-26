@@ -5,7 +5,7 @@
     "email": "release@shawn.co"
   },
   "metadata": {
-    "description": "Small, sharp plugins for working with coding agents: where-were-we prompt navigation, the pr-review-cycle skill, and Xcode release automation"
+    "description": "Small, sharp plugins for working with coding agents: where-were-we prompt navigation, the pr-review-cycle and review-council skills, and Xcode release automation"
   },
   "plugins": [
     {
@@ -49,6 +49,32 @@
         "code-review",
         "review",
         "pr"
+      ],
+      "category": "productivity",
+      "strict": false,
+      "skills": [
+        "./"
+      ]
+    },
+    {
+      "name": "review-council",
+      "source": "./review-council",
+      "description": "Fresh-context code review by every coding agent CLI installed on your machine (Codex, Claude Code, Copilot CLI, Antigravity), run in parallel and read-only; the lead verifies each finding against the code and proposes next steps. Prefer `npx skills add scarrillo/agent-plugins --skill review-council` for the shorter /review-council name.",
+      "author": {
+        "name": "Shawn Carrillo",
+        "email": "release@shawn.co"
+      },
+      "homepage": "https://github.com/scarrillo/agent-plugins/tree/main/review-council",
+      "repository": "https://github.com/scarrillo/agent-plugins",
+      "license": "MIT",
+      "keywords": [
+        "skill",
+        "code-review",
+        "review",
+        "codex",
+        "copilot",
+        "antigravity",
+        "multi-agent"
       ],
       "category": "productivity",
       "strict": false,

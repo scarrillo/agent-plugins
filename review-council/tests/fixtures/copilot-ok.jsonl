@@ -1,0 +1,3 @@
+{"type":"session.auto_mode_resolved","data":{"chosenModel":"model-b","autoTier":"balance"}}
+[1,2]
+{"type":"assistant.message","data":{"phase":"final_answer","content":"Verdict: APPROVE","model":"model-b"}}

@@ -1,0 +1,2 @@
+{"type":"session.warning","data":{"warningType":"folder_not_trusted","message":"not trusted"}}
+{"type":"session.error","data":{"errorType":"quota","message":"quota exceeded"}}
