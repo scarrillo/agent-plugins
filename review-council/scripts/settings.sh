@@ -27,7 +27,8 @@ CODEX_MODEL @@  @@ ^[A-Za-z0-9._:-]*$ @@ codex model (empty = CLI default)
 COPILOT_MODEL @@ fusion @@ ^[A-Za-z0-9._:-]*$ @@ copilot --model; fusion = GitHub router; empty = CLI default
 COPILOT_AUTO_TIER @@ balance @@ ^(balance|intelligence)$ @@ Fusion profile; balance = app Standard
 COPILOT_EFFORT @@ medium @@ ^(none|minimal|low|medium|high|xhigh|max)$ @@ --reasoning-effort for a pinned copilot model
-AGY_MODEL @@ gemini-4-neon @@ ^[A-Za-z0-9._:-]*$ @@ antigravity --model family (empty = configured default)
+AGY_MODEL @@ auto @@ ^[A-Za-z0-9._:-]*$ @@ antigravity --model family; auto = first of AGY_MODEL_ORDER agy offers; empty = configured default
+AGY_MODEL_ORDER @@ gemini-4-neon, gemini-4-carbon, gemini-3.8-flash @@ ^[A-Za-z0-9._:, -]*$ @@ families AGY_MODEL=auto tries, in order (comma list)
 AGY_EFFORT @@ high @@ ^(low|medium|high|xhigh|max)$ @@ antigravity --effort (high = agy default)'
 
 spec_field() { printf '%s\n' "$SPEC" | awk -F' @@ ' -v k="$1" -v f="$2" '$1==k{gsub(/^ +| +$/,"",$f); print $f}'; }
@@ -42,8 +43,10 @@ validate() {  # key value  (printf adds the newline so an empty value is still o
   case $2 in *$'\n'*|*$'\r'*) echo "settings.sh: invalid $1: value must be a single line" >&2; return 1 ;; esac
   printf '%s\n' "$2" | grep -Eq "$re" || { echo "settings.sh: invalid $1='$2' (expected $re)" >&2; return 1; }
   # review-fanout.sh always sends --effort with a pinned family, which conflicts with per-effort ids.
-  if [ "$1" = AGY_MODEL ]; then case $2 in *-low|*-medium|*-high|*-xhigh|*-max)
-    echo "settings.sh: invalid AGY_MODEL='$2': set the model family (e.g. gemini-3.8-flash) and the effort with AGY_EFFORT" >&2; return 1 ;; esac; fi
+  if [ "$1" = AGY_MODEL ] || [ "$1" = AGY_MODEL_ORDER ]; then
+    local fam; for fam in $(printf '%s' "$2" | tr ',' ' '); do case $fam in *-low|*-medium|*-high|*-xhigh|*-max)
+      echo "settings.sh: invalid $1='$2': list model families (e.g. gemini-3.8-flash) and set the effort with AGY_EFFORT" >&2; return 1 ;; esac; done
+  fi
 }
 
 # An explicitly empty value (KEY= in a file, or KEY= in the environment) is a
