@@ -6,7 +6,7 @@
 # usage: review-fanout.sh <session-dir> <member>...        (run from the project dir)
 # settings (env var, or persisted via settings.sh — run `settings.sh show`):
 #        REVIEW_TIMEOUT, CLAUDE_MODEL, CODEX_MODEL, COPILOT_MODEL,
-#        COPILOT_AUTO_TIER, COPILOT_EFFORT, AGY_MODEL, AGY_EFFORT.
+#        COPILOT_AUTO_TIER, COPILOT_EFFORT, AGY_MODEL, AGY_MODEL_ORDER, AGY_EFFORT.
 #
 # Expects in <session-dir>:
 #   target.env            MODE=uncommitted|unpushed|branch|pr  BASE_REF=<ref>  CODEX_NATIVE=0|1
@@ -48,6 +48,7 @@ COPILOT_MODEL=$(setting COPILOT_MODEL)
 COPILOT_EFFORT=$(setting COPILOT_EFFORT)
 COPILOT_AUTO_TIER=$(setting COPILOT_AUTO_TIER)
 AGY_MODEL=$(setting AGY_MODEL)
+AGY_MODEL_ORDER=$(setting AGY_MODEL_ORDER)
 AGY_EFFORT=$(setting AGY_EFFORT)
 
 # Pre-flight: every named member needs its prompt before anything is launched.
@@ -114,6 +115,15 @@ agy_deny_settings() {  # prints the --settings JSON: our read-only deny rules + 
     my %seen; my @all = grep { !$seen{$_}++ } (@ours, @theirs);
     print JSON::PP->new->canonical->utf8->encode({ permissions => { deny => \@all } });
   '
+}
+# `agy models` prints one "<family>-<effort><TAB><label>" line per offered model,
+# so a match confirms both the family and the effort exist for this account.
+agy_pick() {  # effort family... ; stdin = `agy models` output -> prints the first family offering effort
+  local effort=$1 fam ids; shift; ids=$(cut -f1)
+  for fam in "$@"; do
+    printf '%s\n' "$ids" | grep -qxF -- "$fam-$effort" && { printf '%s\n' "$fam"; return 0; }
+  done
+  return 1
 }
 agy_reply() {  # json-file reply-file -> prints "<status>[ denied:<actions>]" or "unparsed-json"; reply is the "response" field
   perl -MJSON::PP -e '
@@ -190,7 +200,7 @@ run_member() {
   local m=$1
   local PF="$SESSION/prompts/$m.md" RF="$SESSION/replies/$m.md" LF="$SESSION/logs/$m.log"
   local PROBLEM="$SESSION/logs/$m.problem" problem=""
-  local start rc status agy_status tree_before tree_changed=""
+  local start rc status agy_status tree_before tree_changed="" agy_model="" agy_how="" agy_go=0
   start=$(date +%s)
   : > "$RF"; rm -f "$PROBLEM"
   if [ -e "$SESSION/.cancelled" ]; then
@@ -260,19 +270,55 @@ run_member() {
     antigravity)
       # Google Antigravity CLI. Read-only is enforced by session-only deny rules
       # (agy evaluates Deny > Ask > Allow, so a user's persisted allow rules
-      # cannot re-enable commands or writes); --mode plan keeps the model in its
-      # read-only investigation posture. Headless agy auto-denies anything that
+      # cannot re-enable commands or writes), and they hold in every --mode.
+      # --mode plan only prepends the /plan prompt prefix; it is not a read-only
+      # switch. It is still passed because agy has no "default" --mode value: an
+      # omitted or unknown mode runs agy's configured default, usually auto,
+      # which may run commands and edit files. Headless agy auto-denies anything that
       # would prompt and then returns an EMPTY response, so the prompt also tells
       # it not to attempt commands. The prompt must be attached to -p= (a bare
       # -p swallows the next flag). Do NOT add --disable-slash-commands: agy
-      # warns it turns plan mode off. --effort only with a pinned family: it
+      # warns "--mode plan has no effect while slash command expansion is
+      # disabled". --effort only with a pinned family: it
       # conflicts with per-effort ids such as gemini-3.8-flash-high.
-      local agm=(); [ -n "$AGY_MODEL" ] && agm=(--model "$AGY_MODEL" --effort "$AGY_EFFORT")
+      : > "$LF"
+      # AGY_MODEL=auto: take the first AGY_MODEL_ORDER family this account offers
+      # at AGY_EFFORT. If agy cannot list its models, try the first family anyway
+      # (agy then reports the real problem); if it lists them and none match, do
+      # not launch.
+      local order mrc avail
+      agy_model=$AGY_MODEL; agy_how="pinned"
+      if [ "$AGY_MODEL" = auto ]; then
+        agy_model=""; agy_how="agy default"
+        order=$(printf '%s' "$AGY_MODEL_ORDER" | tr ',' ' ')
+        if [ -n "$order" ]; then
+          avail=$(TIMEOUT=60 with_timeout agy models < /dev/null 2>> "$LF"); mrc=$?
+          if [ "$mrc" -eq 143 ]; then agy_go=143
+          elif [ "$mrc" -eq 0 ] && [ -n "$avail" ]; then
+            # shellcheck disable=SC2086  # order is validated: families, commas, spaces
+            if agy_model=$(printf '%s\n' "$avail" | agy_pick "$AGY_EFFORT" $order); then
+              agy_how="first available of AGY_MODEL_ORDER"
+            else
+              agy_go=1; agy_model=""
+              { echo "review-fanout.sh: no AGY_MODEL_ORDER family ($AGY_MODEL_ORDER) is offered at effort $AGY_EFFORT. agy offers:"
+                printf '%s\n' "$avail" | cut -f1; } >> "$LF"
+              echo "antigravity: no AGY_MODEL_ORDER model available at $AGY_EFFORT (see log)" > "$PROBLEM"
+            fi
+          else
+            # shellcheck disable=SC2086
+            agy_model=$(printf '%s\n' $order | head -1); agy_how="first of AGY_MODEL_ORDER; agy models failed"
+            echo "review-fanout.sh: agy models failed (exit $mrc); trying $agy_model" >> "$LF"
+          fi
+        fi
+      fi
+      [ "$agy_go" -eq 0 ] && echo "review-fanout.sh: antigravity model: ${agy_model:-agy default} ($agy_how)" >> "$LF"
+      local agm=(); [ -n "$agy_model" ] && agm=(--model "$agy_model" --effort "$AGY_EFFORT")
       # Session settings replace the persisted permissions arrays rather than
       # appending, so the user's own deny entries are merged in, not dropped.
       # agy accepts --settings "" silently, so never launch without the rules.
       local agy_deny
-      if agy_deny=$(agy_deny_settings 2> "$LF") && [ -n "$agy_deny" ]; then
+      if [ "$agy_go" -ne 0 ]; then (exit "$agy_go")
+      elif agy_deny=$(agy_deny_settings 2>> "$LF") && [ -n "$agy_deny" ]; then
         with_timeout agy -p="$(cat "$PF")" --mode plan --output-format json ${agm[@]+"${agm[@]}"} \
           --settings "$agy_deny" --add-dir "$SESSION" < /dev/null > "$LF.json" 2>> "$LF"
       else
@@ -294,7 +340,8 @@ run_member() {
       # surface its status and any denied actions instead of a bare "empty reply".
       agy_status=""
       if [ -s "$LF.json" ]; then agy_status=$(agy_reply "$LF.json" "$RF" 2>> "$LF") || agy_status=""; fi
-      if [ -n "$AGY_MODEL" ]; then model="$AGY_MODEL/$AGY_EFFORT (pinned)"
+      if [ -n "$agy_model" ]; then model="$agy_model/$AGY_EFFORT ($agy_how)"
+      elif [ "$agy_go" -ne 0 ]; then model="not launched"
       else model=$(perl -MJSON::PP -e 'local $/; my $d=eval{decode_json(<STDIN>)}||{}; print $d->{model}//""' < "$HOME/.gemini/antigravity-cli/settings.json" 2>/dev/null); model="${model:-unknown} (agy default)"; fi ;;
   esac
   case "${agy_status:-}" in *denied:*) [ -s "$RF" ] && model="$model; ${agy_status#* }" ;; esac
