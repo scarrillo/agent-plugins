@@ -53,7 +53,7 @@ Detected at run time. The council lead is the model you run the skill with.
 | `codex`       | `codex`   | The current CLI default or use `CODEX_MODEL` to pin a different model                | the built-in `codex review` on a clean tree, else a read-only `codex exec` over the packet |
 | `claude`      | `claude`  | The current CLI default or use `CLAUDE_MODEL` to pin a different model               | `--restricted`, file tools only, no MCP                                                    |
 | `copilot`     | `copilot` | Uses Copilot Fusion router at the `balance` tier. Fusion chooses which model to use. | file tools only; GitHub MCP tools removed, nothing reaches github.com                      |
-| `antigravity` | `agy`     | `gemini-3.8-flash` at `high` effort                                                  | session deny rules for commands, writes, URLs, and MCP, plus plan mode                     |
+| `antigravity` | `agy`     | `gemini-4-neon` at `high` effort                                                     | session deny rules for commands, writes, URLs, and MCP (run in plan mode, which only changes the prompt) |
 
 **Copilot Fusion** is GitHub's per-task model router, not a model: it picks
 from the models your plan allows, which can include Claude. The council
@@ -76,7 +76,7 @@ Every run leaves its packet, prompts, replies, logs, and a `status.md` under `~/
 copilot      ok  25s   gpt-6.1-sol (Fusion/balance picked gpt-6.1-sol)
 claude       ok  77s   claude-fable-5-1
 codex        ok  304s  gpt-6-astra
-antigravity  ok  340s  gemini-3.8-flash/high (pinned)
+antigravity  ok  340s  gemini-4-neon/high (pinned)
 ```
 
 ## Install and update
@@ -120,5 +120,7 @@ Defaults live in `~/.council/review-council.env`, with an optional per-repo `.co
 | `COPILOT_MODEL`     | `fusion`           | router, a pinned id such as `gpt-5.6-sol`, or empty for Copilot's own default            |
 | `COPILOT_AUTO_TIER` | `balance`          | Fusion profile; `intelligence` is the higher tier                                        |
 | `COPILOT_EFFORT`    | `medium`           | `--reasoning-effort`, sent only for a pinned Copilot model                               |
-| `AGY_MODEL`         | `gemini-3.8-flash` | Antigravity model family; empty = agy's configured default                               |
-| `AGY_EFFORT`        | `high`             | Antigravity `--effort`: low, medium, high, xhigh, max                                    
+| `AGY_MODEL`         | `gemini-4-neon`    | Antigravity model family, e.g. `gemini-4-carbon` or `gemini-3.8-flash`; empty = agy's configured default |
+| `AGY_EFFORT`        | `high`             | Antigravity `--effort`: low, medium, high, xhigh, max. Carbon stops at `high`; Neon at `xhigh` |
+
+If your Antigravity account does not offer `gemini-4-neon` (`agy models` lists what it does), the antigravity member fails with "not recognized as a known model". Use `/review-council settings` to set `AGY_MODEL` to a model you have, such as `gemini-3.8-flash`.

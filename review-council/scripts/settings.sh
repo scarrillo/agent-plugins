@@ -27,7 +27,7 @@ CODEX_MODEL @@  @@ ^[A-Za-z0-9._:-]*$ @@ codex model (empty = CLI default)
 COPILOT_MODEL @@ fusion @@ ^[A-Za-z0-9._:-]*$ @@ copilot --model; fusion = GitHub router; empty = CLI default
 COPILOT_AUTO_TIER @@ balance @@ ^(balance|intelligence)$ @@ Fusion profile; balance = app Standard
 COPILOT_EFFORT @@ medium @@ ^(none|minimal|low|medium|high|xhigh|max)$ @@ --reasoning-effort for a pinned copilot model
-AGY_MODEL @@ gemini-3.8-flash @@ ^[A-Za-z0-9._:-]*$ @@ antigravity --model family (empty = configured default)
+AGY_MODEL @@ gemini-4-neon @@ ^[A-Za-z0-9._:-]*$ @@ antigravity --model family (empty = configured default)
 AGY_EFFORT @@ high @@ ^(low|medium|high|xhigh|max)$ @@ antigravity --effort (high = agy default)'
 
 spec_field() { printf '%s\n' "$SPEC" | awk -F' @@ ' -v k="$1" -v f="$2" '$1==k{gsub(/^ +| +$/,"",$f); print $f}'; }

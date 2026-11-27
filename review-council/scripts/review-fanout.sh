@@ -260,12 +260,16 @@ run_member() {
     antigravity)
       # Google Antigravity CLI. Read-only is enforced by session-only deny rules
       # (agy evaluates Deny > Ask > Allow, so a user's persisted allow rules
-      # cannot re-enable commands or writes); --mode plan keeps the model in its
-      # read-only investigation posture. Headless agy auto-denies anything that
+      # cannot re-enable commands or writes), and they hold in every --mode.
+      # --mode plan only prepends the /plan prompt prefix; it is not a read-only
+      # switch. It is still passed because agy has no "default" --mode value: an
+      # omitted or unknown mode runs agy's configured default, usually auto,
+      # which may run commands and edit files. Headless agy auto-denies anything that
       # would prompt and then returns an EMPTY response, so the prompt also tells
       # it not to attempt commands. The prompt must be attached to -p= (a bare
       # -p swallows the next flag). Do NOT add --disable-slash-commands: agy
-      # warns it turns plan mode off. --effort only with a pinned family: it
+      # warns "--mode plan has no effect while slash command expansion is
+      # disabled". --effort only with a pinned family: it
       # conflicts with per-effort ids such as gemini-3.8-flash-high.
       local agm=(); [ -n "$AGY_MODEL" ] && agm=(--model "$AGY_MODEL" --effort "$AGY_EFFORT")
       # Session settings replace the persisted permissions arrays rather than
